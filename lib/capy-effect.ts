@@ -19,6 +19,7 @@ export const CAPY_CSS = `
   -webkit-mask-image:linear-gradient(to bottom, #000 0%, #000 25%, transparent 50%, transparent 100%);
   mask-image:linear-gradient(to bottom, #000 0%, #000 25%, transparent 50%, transparent 100%);
 }
+.aura-capy-ink[data-half-wallpaper][data-photo-shader-rendered] { -webkit-mask-image:none; mask-image:none; background-image:none !important; }
 
 `;
 
@@ -33,7 +34,7 @@ export function mountCapyEffect(parent: HTMLElement, initial: BackgroundSettings
   layer.append(air, ink, focus, fade); parent.prepend(layer);
   let settings = initial;
   let currentImage: string | null | undefined;
-  let disposeShader = () => {};
+  let shader: MountedShader | null = null;
   let stopped = false;
   const theme = new MutationObserver(() => update(settings, currentImage ?? null, true));
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-color-theme", "data-theme"] });
@@ -54,27 +55,31 @@ export function mountCapyEffect(parent: HTMLElement, initial: BackgroundSettings
     const conversation = parent.id === "thread-detail-timeline-panel";
     fade.style.opacity = "0";
     focus.style.opacity = "0";
-    if (settings.dimmerEnabled && !conversation) ink.dataset.halfWallpaper = "";
+    const halfWallpaper = settings.dimmerEnabled && !conversation;
+    if (halfWallpaper) ink.dataset.halfWallpaper = "";
     else delete ink.dataset.halfWallpaper;
     if (image) { ink.dataset.image = ""; ink.style.backgroundImage = `url("${image}")`; }
     else { delete ink.dataset.image; ink.style.backgroundImage = "none"; }
     if (image !== currentImage || refresh || wasEffect !== settings.effect || wasEnabled !== settings.enabled || wasTint !== settings.tint || wasFit !== settings.fit) {
       currentImage = image;
-      disposeShader(); disposeShader = () => {};
+      shader?.dispose(); shader = null;
       if (settings.enabled && settings.effect === "pixels") {
         const color = settings.tint === "theme" ? getComputedStyle(parent).getPropertyValue("--primary").trim() || "#5e6ad2" : dark ? "#606acc" : "#5e6ad2";
-        disposeShader = mountShader(ink, image, color, settings.fit);
+        shader = mountShader(ink, image, color, settings.fit);
       }
     }
+    shader?.setHalfWallpaper(halfWallpaper);
   }
   update(initial, imageUrl);
-  return { update, dispose() { if (stopped) return; stopped = true; theme.disconnect(); disposeShader(); layer.remove(); } };
+  return { update, dispose() { if (stopped) return; stopped = true; theme.disconnect(); shader?.dispose(); layer.remove(); } };
 }
 
-function mountShader(parent: HTMLElement, imageUrl: string | null, color: string, fit: BackgroundSettings["fit"]): () => void {
+interface MountedShader { setHalfWallpaper(enabled: boolean): void; dispose(): void; }
+
+function mountShader(parent: HTMLElement, imageUrl: string | null, color: string, fit: BackgroundSettings["fit"]): MountedShader {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl2", { alpha:true, antialias:false, depth:false, stencil:false, premultipliedAlpha:true, preserveDrawingBuffer:false });
-  if (!gl) return () => {}; // Keep the source image/gradient when WebGL is unavailable.
+  if (!gl) return { setHalfWallpaper() {}, dispose() {} }; // Keep the source image/gradient when WebGL is unavailable.
   let disposed = false;
   let frame = 40000;
   let raf = 0;
@@ -88,6 +93,8 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
   let timeUniform: WebGLUniformLocation | null = null;
   let resolutionUniform: WebGLUniformLocation | null = null;
   let pixelRatioUniform: WebGLUniformLocation | null = null;
+  let halfWallpaperUniform: WebGLUniformLocation | null = null;
+  let halfWallpaper = false;
   const shaders: WebGLShader[] = [];
   const program = gl.createProgram();
   const buffer = gl.createBuffer();
@@ -115,6 +122,7 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     timeUniform = gl.getUniformLocation(program, "u_time");
     resolutionUniform = gl.getUniformLocation(program, "u_resolution");
     pixelRatioUniform = gl.getUniformLocation(program, "u_pixelRatio");
+    halfWallpaperUniform = gl.getUniformLocation(program, "u_halfWallpaper");
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
     const position = gl.getAttribLocation(program, "a_position");
@@ -134,7 +142,7 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     }
   } catch (error) {
     console.warn("Aura: Capy shader unavailable", error);
-    releaseGl(); gl.getExtension("WEBGL_lose_context")?.loseContext(); return () => {};
+    releaseGl(); gl.getExtension("WEBGL_lose_context")?.loseContext(); return { setHalfWallpaper() {}, dispose() {} };
   }
   parent.append(canvas);
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -142,8 +150,12 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     if (disposed || lost || !imageReady || !canvas.width || !canvas.height) return;
     gl!.useProgram(program);
     gl!.uniform1f(timeUniform,frame * .001);
+    gl!.uniform1i(halfWallpaperUniform,halfWallpaper ? 1 : 0);
     gl!.clear(gl!.COLOR_BUFFER_BIT); gl!.drawArrays(gl!.TRIANGLES,0,6);
-    if (canvas.dataset.rendered !== "true") canvas.dataset.rendered = "true";
+    if (canvas.dataset.rendered !== "true") {
+      canvas.dataset.rendered = "true";
+      if (imageUrl) parent.dataset.photoShaderRendered = "";
+    }
   }
   function tick(now: number) {
     raf = 0;
@@ -187,7 +199,7 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     image.onerror = () => { canvas.style.visibility = "hidden"; };
     image.src = imageUrl;
   }
-  function onLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(raf); canvas.style.visibility = "hidden"; }
+  function onLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(raf); delete parent.dataset.photoShaderRendered; canvas.style.visibility = "hidden"; }
   // A context loss falls back to the original image/gradient. A plugin reload
   // or appearance change retries with a fresh context.
   canvas.addEventListener("webglcontextlost",onLost);
@@ -195,11 +207,15 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
   const intersection = new IntersectionObserver(entries=>{visible=entries[0]?.isIntersecting??true;schedule();}); intersection.observe(parent);
   document.addEventListener("visibilitychange",schedule); reduced.addEventListener("change",schedule);
   resize(); schedule();
-  return () => {
-    if (disposed) return; disposed = true; cancelAnimationFrame(raf);
-    resizeObserver.disconnect(); intersection.disconnect(); document.removeEventListener("visibilitychange",schedule); reduced.removeEventListener("change",schedule);
-    canvas.removeEventListener("webglcontextlost",onLost);
-    if (image) { image.onload = null; image.onerror = null; image.src = ""; }
-    releaseGl(); gl!.getExtension("WEBGL_lose_context")?.loseContext(); canvas.remove();
+  return {
+    setHalfWallpaper(enabled) { halfWallpaper = enabled; draw(); },
+    dispose() {
+      if (disposed) return; disposed = true; cancelAnimationFrame(raf);
+      resizeObserver.disconnect(); intersection.disconnect(); document.removeEventListener("visibilitychange",schedule); reduced.removeEventListener("change",schedule);
+      canvas.removeEventListener("webglcontextlost",onLost);
+      if (image) { image.onload = null; image.onerror = null; image.src = ""; }
+      delete parent.dataset.photoShaderRendered;
+      releaseGl(); gl!.getExtension("WEBGL_lose_context")?.loseContext(); canvas.remove();
+    },
   };
 }

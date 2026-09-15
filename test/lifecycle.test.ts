@@ -3,6 +3,13 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { mountBackground, notifyChange, TARGETS } from "../lib/background.ts";
 import { defaults } from "../lib/model.ts";
+import { ANIMATED_PHOTO_SHADER } from "../lib/photo-shader.ts";
+
+test("photo shader shapes the half-wallpaper edge with its animated dither field", () => {
+  assert.match(ANIMATED_PHOTO_SHADER, /uniform bool u_halfWallpaper;/);
+  assert.match(ANIMATED_PHOTO_SHADER, /auraFadeField = normalizedUV\.y \+ auraWave \* 1\.8/);
+  assert.match(ANIMATED_PHOTO_SHADER, /opacity \*= auraDissolve/);
+});
 
 test("applies scoped backgrounds, disables cleanly and ignores a late fetch after disposal", async () => {
   const dom = new JSDOM('<html><head></head><body><div id="thread-detail-timeline-panel"></div><div id="root-compose-main-panel"></div><aside>Sidebar</aside></body></html>', { pretendToBeVisual: true });
@@ -20,6 +27,7 @@ test("applies scoped backgrounds, disables cleanly and ignores a late fetch afte
     assert.ok(document.head.textContent!.includes(TARGETS));
     assert.match(document.head.textContent!, /data-root-compose-mobile-recents.*letter-spacing:\.02em; text-transform:none/s);
     assert.match(document.head.textContent!, /data-root-compose-mobile-recents.*data-overflow-fade.*display:none/s);
+    assert.match(document.head.textContent!, /data-half-wallpaper.*data-photo-shader-rendered.*mask-image:none/s);
     assert.match(document.head.textContent!, /:root:not\(\.dark\).*data-root-compose-mobile-recents.*background:color-mix\(in oklab,var\(--background\) 94%,transparent\)/s);
     assert.match(document.head.textContent!, /\.dark.*data-root-compose-mobile-recents.*background:color-mix\(in oklab,var\(--background\) 30%,transparent\)/s);
     assert.ok(!document.head.textContent!.includes("aside"));

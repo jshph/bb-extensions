@@ -21,7 +21,8 @@ try {
  const ink=page.locator('#root-compose-main-panel .aura-capy-ink');
  await page.locator('#root-compose-main-panel .aura-capy-ink[data-half-wallpaper] canvas[data-rendered]').waitFor();
  assert.equal(await page.getByRole('button',{name:'Dim background',exact:true}).count(),0);
- assert.ok((await ink.evaluate(e=>getComputedStyle(e).maskImage)).includes('50%'));
+ assert.ok(await ink.getAttribute('data-photo-shader-rendered')!==null);
+ assert.equal(await ink.evaluate(e=>getComputedStyle(e).maskImage),'none');
  await page.locator('#root-compose-main-panel').screenshot({path:shots+'/new-thread-half.jpg',type:'jpeg',quality:88});
  await page.goto(settings);await toggle.uncheck();await page.getByRole('button',{name:'Apply background',exact:true}).click();
  await page.getByText('Applied to all threads',{exact:true}).waitFor();assert.equal(state.settings.dimmerEnabled,false);
