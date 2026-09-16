@@ -20,19 +20,20 @@ try {
  await page.goto(base);
  const ink=page.locator('#root-compose-main-panel .aura-capy-ink');
  await page.locator('#root-compose-main-panel .aura-capy-ink[data-half-wallpaper] canvas[data-rendered]').waitFor();
+ const source=ink.locator('.aura-capy-source');
  assert.equal(await page.getByRole('button',{name:'Dim background',exact:true}).count(),0);
- assert.ok(await ink.getAttribute('data-photo-shader-rendered')!==null);
- assert.equal(await ink.evaluate(e=>getComputedStyle(e).maskImage),'none');
+ assert.ok(await ink.getAttribute('data-shader-ready')!==null);
+ assert.ok((await source.evaluate(e=>getComputedStyle(e).maskImage)).includes('50%'));
  await page.locator('#root-compose-main-panel').screenshot({path:shots+'/new-thread-half.jpg',type:'jpeg',quality:88});
  await page.goto(settings);await toggle.uncheck();await page.getByRole('button',{name:'Apply background',exact:true}).click();
  await page.getByText('Applied to all threads',{exact:true}).waitFor();assert.equal(state.settings.dimmerEnabled,false);
- await page.goto(base);await ink.waitFor();assert.equal(await ink.evaluate(e=>getComputedStyle(e).maskImage),'none');
+ await page.goto(base);await ink.waitFor();assert.equal(await source.evaluate(e=>getComputedStyle(e).maskImage),'none');
  await page.locator('#root-compose-main-panel').screenshot({path:shots+'/new-thread-full.jpg',type:'jpeg',quality:88});
  if(process.env.BB_TEST_THREAD_PATH){
   state={...state,settings:{...state.settings,dimmerEnabled:true}};
   await page.goto(base+process.env.BB_TEST_THREAD_PATH);
   const chat=page.locator('#thread-detail-timeline-panel .aura-capy-ink');await chat.waitFor();
-  assert.equal(await chat.evaluate(e=>getComputedStyle(e).maskImage),'none');
+  assert.equal(await chat.locator('.aura-capy-source').evaluate(e=>getComputedStyle(e).maskImage),'none');
   const footer=page.locator('#thread-detail-timeline-panel [data-scroll-footer] > .bg-background');
   assert.equal(await footer.evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','Footer margins must show the wallpaper');
   assert.notEqual(await footer.locator(':scope > .mx-auto').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','Composer must keep its readable background');

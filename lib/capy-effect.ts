@@ -1,25 +1,28 @@
 import { VERTEX_SHADER, DITHERING_SHADER } from "./capy-shaders.ts";
+import { BLUE_NOISE_64, BLUE_NOISE_SIZE } from "./blue-noise.ts";
 import { ANIMATED_PHOTO_SHADER } from "./photo-shader.ts";
 import type { BackgroundSettings } from "./model.ts";
 
 export const CAPY_CSS = `
 .aura-capy-layer { position:absolute; inset:0; z-index:-1; pointer-events:none; overflow:hidden; border-radius:inherit; }
-.aura-capy-air, .aura-capy-ink, .aura-capy-fade { position:absolute; inset:0; pointer-events:none; }
+.aura-capy-air, .aura-capy-ink, .aura-capy-source, .aura-capy-fade { position:absolute; inset:0; pointer-events:none; }
 .aura-capy-air { background:linear-gradient(180deg in oklab, var(--aura-panel, #f9fafc) 0%, var(--background, #fff) 100%); }
-.aura-capy-ink { background-position:center; background-repeat:no-repeat; background-size:var(--aura-fit, cover); }
+.aura-capy-source { background-position:center; background-repeat:no-repeat; background-size:var(--aura-fit, cover); opacity:1; transition:opacity 180ms ease-out; }
 
-.aura-capy-ink canvas { display:block; position:absolute; inset:0; width:100%; height:100%; image-rendering:pixelated; }
+.aura-capy-ink canvas { display:block; position:absolute; inset:0; width:100%; height:100%; image-rendering:pixelated; opacity:0; transition:opacity 180ms ease-out; }
+.aura-capy-ink[data-shader-ready] .aura-capy-source { opacity:0; }
+.aura-capy-ink[data-shader-ready] canvas { opacity:1; }
 .aura-capy-focus { position:absolute; top:46%; left:50%; width:1360px; height:680px; transform:translate(-50%,-50%); }
 .aura-capy-focus::after { content:""; position:absolute; inset:160px; border-radius:48px; background:rgba(255,255,255,.88); filter:blur(88px); }
 .aura-capy-fade { background:linear-gradient(to bottom,rgba(255,255,255,0) 30%,rgba(255,255,255,.48) 48%,rgba(255,255,255,.86) 66%,#fff 82%); }
 .dark .aura-capy-air { display:none; }
 .dark .aura-capy-focus::after { background:rgba(0,0,0,.9); }
 .dark .aura-capy-fade { background:linear-gradient(to bottom,rgba(0,0,0,0) 12%,rgba(0,0,0,.3) 34%,rgba(0,0,0,.68) 52%,rgba(0,0,0,.92) 70%,#000 88%); }
-.aura-capy-ink[data-half-wallpaper] {
+.aura-capy-ink[data-half-wallpaper] .aura-capy-source {
   -webkit-mask-image:linear-gradient(to bottom, #000 0%, #000 25%, transparent 50%, transparent 100%);
   mask-image:linear-gradient(to bottom, #000 0%, #000 25%, transparent 50%, transparent 100%);
 }
-.aura-capy-ink[data-half-wallpaper][data-photo-shader-rendered] { -webkit-mask-image:none; mask-image:none; background-image:none !important; }
+@media (prefers-reduced-motion: reduce) { .aura-capy-source, .aura-capy-ink canvas { transition:none; } }
 
 `;
 
@@ -29,6 +32,7 @@ export function mountCapyEffect(parent: HTMLElement, initial: BackgroundSettings
   const layer = document.createElement("div"); layer.className = "aura-capy-layer"; layer.ariaHidden = "true";
   const air = document.createElement("div"); air.className = "aura-capy-air";
   const ink = document.createElement("div"); ink.className = "aura-capy-ink";
+  const source = document.createElement("div"); source.className = "aura-capy-source"; ink.append(source);
   const focus = document.createElement("div"); focus.className = "aura-capy-focus";
   const fade = document.createElement("div"); fade.className = "aura-capy-fade";
   layer.append(air, ink, focus, fade); parent.prepend(layer);
@@ -49,7 +53,7 @@ export function mountCapyEffect(parent: HTMLElement, initial: BackgroundSettings
     layer.style.display = settings.enabled ? "" : "none";
     ink.style.opacity = String(image ? settings.imageOpacity : Math.min(1, settings.intensity * (dark ? 1.1 : 1)));
     ink.style.mixBlendMode = image ? "normal" : dark ? "screen" : "multiply";
-    ink.style.backgroundSize = settings.fit;
+    source.style.backgroundSize = settings.fit;
     // The settings toggle affects New thread only: show the top half of the
     // wallpaper with a fade to the theme background at the midpoint.
     const conversation = parent.id === "thread-detail-timeline-panel";
@@ -58,8 +62,8 @@ export function mountCapyEffect(parent: HTMLElement, initial: BackgroundSettings
     const halfWallpaper = settings.dimmerEnabled && !conversation;
     if (halfWallpaper) ink.dataset.halfWallpaper = "";
     else delete ink.dataset.halfWallpaper;
-    if (image) { ink.dataset.image = ""; ink.style.backgroundImage = `url("${image}")`; }
-    else { delete ink.dataset.image; ink.style.backgroundImage = "none"; }
+    if (image) { ink.dataset.image = ""; source.style.backgroundImage = `url("${image}")`; }
+    else { delete ink.dataset.image; source.style.backgroundImage = "none"; }
     if (image !== currentImage || refresh || wasEffect !== settings.effect || wasEnabled !== settings.enabled || wasTint !== settings.tint || wasFit !== settings.fit) {
       currentImage = image;
       shader?.dispose(); shader = null;
@@ -85,11 +89,13 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
   let raf = 0;
   let previous: number | null = null;
   let lastDraw = 0;
+  let revealRaf = 0;
   let visible = true;
   let lost = false;
   let imageReady = imageUrl === null;
   let image: HTMLImageElement | null = null;
   let texture: WebGLTexture | null = null;
+  let blueNoiseTexture: WebGLTexture | null = null;
   let timeUniform: WebGLUniformLocation | null = null;
   let resolutionUniform: WebGLUniformLocation | null = null;
   let pixelRatioUniform: WebGLUniformLocation | null = null;
@@ -100,6 +106,7 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
   const buffer = gl.createBuffer();
   function releaseGl() {
     if (texture) gl!.deleteTexture(texture);
+    if (blueNoiseTexture) gl!.deleteTexture(blueNoiseTexture);
     if (buffer) gl!.deleteBuffer(buffer);
     if (program) gl!.deleteProgram(program);
     shaders.forEach(shader => gl!.deleteShader(shader));
@@ -136,6 +143,15 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     gl.uniform4fv(gl.getUniformLocation(program,"u_colorFront"),rgba);
     gl.uniform4f(gl.getUniformLocation(program,"u_colorBack"),0,0,0,0);
     if (imageUrl) {
+      blueNoiseTexture = gl.createTexture();
+      if (!blueNoiseTexture) throw new Error("Blue-noise texture allocation failed");
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,blueNoiseTexture);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,BLUE_NOISE_SIZE,BLUE_NOISE_SIZE,0,gl.RED,gl.UNSIGNED_BYTE,BLUE_NOISE_64);
+      gl.uniform1i(gl.getUniformLocation(program,"u_blueNoise"),1);
+      gl.activeTexture(gl.TEXTURE0);
       gl.uniform1i(gl.getUniformLocation(program,"u_originalColors"),1);
       gl.uniform1i(gl.getUniformLocation(program,"u_inverted"),0);
       gl.uniform4f(gl.getUniformLocation(program,"u_colorHighlight"),1,1,1,1);
@@ -152,9 +168,15 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     gl!.uniform1f(timeUniform,frame * .001);
     gl!.uniform1i(halfWallpaperUniform,halfWallpaper ? 1 : 0);
     gl!.clear(gl!.COLOR_BUFFER_BIT); gl!.drawArrays(gl!.TRIANGLES,0,6);
-    if (canvas.dataset.rendered !== "true") {
-      canvas.dataset.rendered = "true";
-      if (imageUrl) parent.dataset.photoShaderRendered = "";
+    if (canvas.dataset.rendered !== "true" && !revealRaf) {
+      revealRaf = requestAnimationFrame(() => {
+        revealRaf = requestAnimationFrame(() => {
+          revealRaf = 0;
+          if (disposed || lost) return;
+          canvas.dataset.rendered = "true";
+          parent.dataset.shaderReady = "";
+        });
+      });
     }
   }
   function tick(now: number) {
@@ -176,11 +198,16 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
     const {width,height} = parent.getBoundingClientRect();
     if (disposed || lost || width <= 0 || height <= 0) return;
     // Match Capy's bounded noise renderer: width*height / (3*3) framebuffer pixels.
-    const scale = imageUrl ? Math.min(1/3, Math.sqrt(2073600/(width*height))) : 1/3;
-    canvas.width = Math.max(1,Math.round(width*scale)); canvas.height = Math.max(1,Math.round(height*scale));
-    gl!.viewport(0,0,canvas.width,canvas.height);
+    const scale = imageUrl ? Math.min(2/5, Math.sqrt(2073600/(width*height))) : 1/3;
+    const nextWidth = Math.max(1,Math.round(width*scale));
+    const nextHeight = Math.max(1,Math.round(height*scale));
+    if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+      canvas.width = nextWidth; canvas.height = nextHeight;
+      gl!.viewport(0,0,canvas.width,canvas.height);
+      gl!.useProgram(program);
+      gl!.uniform2f(resolutionUniform,canvas.width,canvas.height);
+    }
     gl!.useProgram(program);
-    gl!.uniform2f(resolutionUniform,canvas.width,canvas.height);
     gl!.uniform1f(pixelRatioUniform,canvas.width/width);
     draw();
   }
@@ -196,10 +223,10 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
       gl!.uniform1f(gl!.getUniformLocation(program!,"u_imageAspectRatio"),image.naturalWidth/image.naturalHeight);
       imageReady = true; resize();
     };
-    image.onerror = () => { canvas.style.visibility = "hidden"; };
+    image.onerror = () => { cancelAnimationFrame(revealRaf); revealRaf = 0; delete parent.dataset.shaderReady; canvas.style.visibility = "hidden"; };
     image.src = imageUrl;
   }
-  function onLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(raf); delete parent.dataset.photoShaderRendered; canvas.style.visibility = "hidden"; }
+  function onLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(raf); cancelAnimationFrame(revealRaf); revealRaf = 0; delete parent.dataset.shaderReady; canvas.style.visibility = "hidden"; }
   // A context loss falls back to the original image/gradient. A plugin reload
   // or appearance change retries with a fresh context.
   canvas.addEventListener("webglcontextlost",onLost);
@@ -210,11 +237,11 @@ function mountShader(parent: HTMLElement, imageUrl: string | null, color: string
   return {
     setHalfWallpaper(enabled) { halfWallpaper = enabled; draw(); },
     dispose() {
-      if (disposed) return; disposed = true; cancelAnimationFrame(raf);
+      if (disposed) return; disposed = true; cancelAnimationFrame(raf); cancelAnimationFrame(revealRaf);
       resizeObserver.disconnect(); intersection.disconnect(); document.removeEventListener("visibilitychange",schedule); reduced.removeEventListener("change",schedule);
       canvas.removeEventListener("webglcontextlost",onLost);
       if (image) { image.onload = null; image.onerror = null; image.src = ""; }
-      delete parent.dataset.photoShaderRendered;
+      delete parent.dataset.shaderReady;
       releaseGl(); gl!.getExtension("WEBGL_lose_context")?.loseContext(); canvas.remove();
     },
   };

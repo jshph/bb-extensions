@@ -7,6 +7,9 @@ import { ANIMATED_PHOTO_SHADER } from "../lib/photo-shader.ts";
 
 test("photo shader shapes the half-wallpaper edge with its animated dither field", () => {
   assert.match(ANIMATED_PHOTO_SHADER, /uniform bool u_halfWallpaper;/);
+  assert.match(ANIMATED_PHOTO_SHADER, /uniform sampler2D u_blueNoise;/);
+  assert.match(ANIMATED_PHOTO_SHADER, /texture\(u_blueNoise, \(pxSizeUV \+ auraWarp \+ 0\.5\)/);
+  assert.doesNotMatch(ANIMATED_PHOTO_SHADER, /floor\(pxSizeUV \+ auraWarp\)/);
   assert.match(ANIMATED_PHOTO_SHADER, /auraFadeField = normalizedUV\.y \+ auraWave \* 1\.8/);
   assert.match(ANIMATED_PHOTO_SHADER, /opacity \*= auraDissolve/);
 });
@@ -27,11 +30,13 @@ test("applies scoped backgrounds, disables cleanly and ignores a late fetch afte
     assert.ok(document.head.textContent!.includes(TARGETS));
     assert.match(document.head.textContent!, /data-root-compose-mobile-recents.*letter-spacing:\.02em; text-transform:none/s);
     assert.match(document.head.textContent!, /data-root-compose-mobile-recents.*data-overflow-fade.*display:none/s);
-    assert.match(document.head.textContent!, /data-half-wallpaper.*data-photo-shader-rendered.*mask-image:none/s);
+    assert.match(document.head.textContent!, /data-shader-ready.*aura-capy-source.*opacity:0/s);
+    assert.match(document.head.textContent!, /data-half-wallpaper.*aura-capy-source.*mask-image:linear-gradient/s);
     assert.match(document.head.textContent!, /:root:not\(\.dark\).*data-root-compose-mobile-recents.*background:color-mix\(in oklab,var\(--background\) 94%,transparent\)/s);
     assert.match(document.head.textContent!, /\.dark.*data-root-compose-mobile-recents.*background:color-mix\(in oklab,var\(--background\) 30%,transparent\)/s);
     assert.ok(!document.head.textContent!.includes("aside"));
     assert.equal(document.querySelectorAll('.aura-capy-layer').length, 2);
+    assert.equal(document.querySelectorAll('.aura-capy-source').length, 2);
     notifyChange({ settings: { ...defaults, newThreadOnly: true }, image: null, slots: [], activeSlot: null });
     assert.equal(document.querySelector('#thread-detail-timeline-panel .aura-capy-layer'), null);
     assert.equal(document.querySelectorAll('#root-compose-main-panel .aura-capy-layer').length, 1);
