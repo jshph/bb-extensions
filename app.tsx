@@ -33,6 +33,8 @@ function Voice({ threadId }: { threadId: string }) {
   const afterSeq = useRef(0);
   const replyText = useRef(new Map<string, string>());
   const synchronize = useRef<() => void>(() => {});
+  const refreshing = useRef(false);
+  const refreshAgain = useRef(false);
 
   useEffect(() => {
     const stop = () => { client.current?.stop(); client.current = null; };
@@ -58,7 +60,9 @@ function Voice({ threadId }: { threadId: string }) {
   synchronize.current = () => {
     const current = client.current;
     if (!current || status !== 'active') return;
-    void rpc.call('poll', { sessionId: current.sessionId, afterSeq: afterSeq.current }).then(result => apply(result, current)).catch(error => current.stop(error instanceof Error ? error.message : 'Voice session ended'));
+    if (refreshing.current) { refreshAgain.current = true; return; }
+    refreshing.current = true;
+    void rpc.call('poll', { sessionId: current.sessionId, afterSeq: afterSeq.current }).then(result => apply(result, current)).catch(error => current.stop(error instanceof Error ? error.message : 'Voice session ended')).finally(() => { refreshing.current = false; if (refreshAgain.current) { refreshAgain.current = false; synchronize.current(); } });
   };
   useRealtime('voice-changed', payload => {
     if (typeof payload === 'object' && payload && 'sessionId' in payload && payload.sessionId === client.current?.sessionId) synchronize.current();

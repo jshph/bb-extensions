@@ -14,7 +14,7 @@ interface Session {
   id: string; threadId: string; adapter: 'native' | 'delegated'; abort: AbortController; touched: number;
   updates: Update[]; sequence: number; superseded: Set<string>; seen: Set<string>; job: Job | null; attention: boolean;
   context: DelegationContext; backgroundContext: string | null; ended: string | null;
-  nativeSignal: WakeSignal; nativeCursor: number; nativeWorking: boolean;
+  nativeSignal: WakeSignal; nativeCursor: number; nativeWorking: boolean; notifying: boolean;
 }
 
 export function createPlugin(connect?: (sdp: string) => Promise<string>, nativeConnect: typeof nativeVoice = nativeVoice) {
@@ -23,7 +23,11 @@ export function createPlugin(connect?: (sdp: string) => Promise<string>, nativeC
     const config = await settings.get();
     const openCall = connect ?? ((sdp: string) => createSubscriptionCall(sdp, config.codexCommand));
     const sessions = new Map<string, Session>();
-    function changed(session: Session): void { if (session.abort.signal.aborted) return; bb.realtime.publish('voice-changed', { sessionId: session.id }); }
+    function changed(session: Session): void {
+      if (session.abort.signal.aborted || session.notifying) return;
+      session.notifying = true;
+      queueMicrotask(() => { session.notifying = false; if (!session.abort.signal.aborted) bb.realtime.publish('voice-changed', { sessionId: session.id }); });
+    }
     function emit(session: Session, id: string, text: string, final = false, channel: Update['channel'] = 'speakable'): void {
       if (session.abort.signal.aborted) return;
       session.updates.push({ seq: ++session.sequence, id, text, final, channel });
@@ -111,7 +115,7 @@ export function createPlugin(connect?: (sdp: string) => Promise<string>, nativeC
         if (sessions.has(sessionId) || [...sessions.values()].some(session => session.threadId === threadId)) throw new Error('This thread already has a Live Voice call. End it first.');
         if (sessions.size >= 4) throw new Error('Four Live Voice calls are already open. End a call first.');
         const adapter: Session['adapter'] = thread.providerId === 'codex' ? 'native' : 'delegated';
-        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active' };
+        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active', notifying: false };
         sessions.set(sessionId, session);
         try {
           let answer: string;
