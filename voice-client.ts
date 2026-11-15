@@ -1,3 +1,4 @@
+import { describeVoiceEvent, type TraceSink } from './trace';
 import { z } from "zod";
 
 export type VoiceRequest =
@@ -15,6 +16,7 @@ export interface VoiceClientOptions {
     message: string | null,
   ): void;
   audioBlocked(): void;
+  trace?: TraceSink;
   event?(value: unknown): void;
 }
 
@@ -39,6 +41,7 @@ export class VoiceClient {
   constructor(private readonly options: VoiceClientOptions) {}
 
   async start(): Promise<void> {
+    this.options.trace?.("client.start");
     this.options.state("connecting", null);
     this.timer = setTimeout(
       () => this.stop("Voice connection timed out. Try again."),
@@ -56,6 +59,7 @@ export class VoiceClient {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
+      this.options.trace?.("microphone.acquired");
       this.stream = stream;
       const peer = this.options.createPeer();
       this.peer = peer;
@@ -66,11 +70,13 @@ export class VoiceClient {
       });
       peer.ontrack = (event) => {
         if (this.stopped) return;
+        this.options.trace?.("audio.track.received");
         this.options.audio.srcObject = new MediaStream([event.track]);
-        void this.options.audio.play().catch(() => this.options.audioBlocked());
+        void this.options.audio.play().then(() => this.options.trace?.("audio.play.started")).catch(() => { this.options.trace?.("audio.play.blocked"); this.options.audioBlocked(); });
       };
       peer.onconnectionstatechange = () => {
         if (this.stopped) return;
+        this.options.trace?.("peer.state", { state: peer.connectionState });
         if (peer.connectionState === "connected") {
           clearTimeout(this.timer);
           clearTimeout(this.disconnectTimer);
@@ -90,7 +96,7 @@ export class VoiceClient {
         }
       };
       this.channel = peer.createDataChannel("oai-events");
-      this.channel.onopen = () => this.flushBackgroundContext();
+      this.channel.onopen = () => { this.options.trace?.("datachannel.open"); this.flushBackgroundContext(); };
       this.channel.onmessage = (event) => {
         if (this.stopped) return;
         let value: unknown;
@@ -99,6 +105,8 @@ export class VoiceClient {
         } catch {
           return;
         }
+        const diagnostic = describeVoiceEvent(value);
+        if (diagnostic) this.options.trace?.("realtime.received", diagnostic);
         this.options.event?.(value);
         const parsed = z
           .object({
@@ -129,6 +137,7 @@ export class VoiceClient {
           }
         }
         if (parsed.data.type === "session.context.appended") {
+          this.options.trace?.("context.acknowledged", { contextPending: this.contextPending });
           this.contextPending = false;
           this.flushBackgroundContext();
         }
@@ -175,11 +184,13 @@ export class VoiceClient {
   addBackgroundContext(text: string): void {
     if (this.stopped || this.contextSent || this.backgroundContext || !text)
       return;
+    this.options.trace?.("context.queued", { characters: text.length });
     this.backgroundContext = text;
     this.flushBackgroundContext();
   }
 
   private flushBackgroundContext(): void {
+    if (this.backgroundContext) this.options.trace?.("context.gate", { inputActive: this.inputActive, assistantActive: this.assistantActive, firstExchangeDone: this.firstExchangeDone, contextPending: this.contextPending });
     if (
       this.stopped ||
       this.contextSent ||
@@ -209,12 +220,14 @@ export class VoiceClient {
           content: [{ type: "input_text", text: chunk }],
         }),
       );
+      this.options.trace?.("context.sent", { channel: "developer", text: chunk, bytes });
       this.backgroundContext = this.backgroundContext.slice(chunk.length);
       if (!this.backgroundContext) {
         this.contextSent = true;
         this.backgroundContext = null;
       }
     } catch {
+      this.options.trace?.("context.failed", { characters: this.backgroundContext?.length ?? 0 });
       this.contextSent = true;
       this.backgroundContext = null;
       this.options.state(
@@ -225,13 +238,15 @@ export class VoiceClient {
   }
 
   sendResult(id: string, text: string, channel: 'speakable' | 'developer' = 'speakable'): void {
-    if (this.stopped || this.channel?.readyState !== 'open') return;
+    if (this.stopped || this.channel?.readyState !== 'open') { this.options.trace?.("delegation.unsent", { id, characters: text.length, state: this.channel?.readyState ?? "absent" }); return; }
     for (const chunk of utf8Chunks(text)) {
       this.channel.send(JSON.stringify({ type: 'delegation.context.append', delegation_item_id: id, channel, content: [{ type: 'input_text', text: chunk }] }));
+      this.options.trace?.('delegation.sent', { id, channel, text: chunk, bytes: new TextEncoder().encode(chunk).length });
     }
   }
 
   mute(muted: boolean): void {
+    this.options.trace?.("microphone.mute", { state: muted ? "muted" : "unmuted" });
     this.stream?.getAudioTracks().forEach((track) => {
       track.enabled = !muted;
     });
@@ -239,6 +254,7 @@ export class VoiceClient {
 
   stop(message: string | null = null): void {
     if (this.stopped) return;
+    this.options.trace?.("client.stop", { text: (message ?? "Call ended without an error reason").slice(0, 32000) });
     this.stopped = true;
     clearTimeout(this.timer);
     clearInterval(this.heartbeat);

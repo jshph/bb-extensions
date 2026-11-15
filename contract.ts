@@ -1,6 +1,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { spokenTurnSchema } from './conversation';
+import { traceEntrySchema } from './trace';
 
 const session = z.object({ sessionId: z.string().uuid() });
 export const rpcContract = defineRpcContract({
@@ -9,6 +10,9 @@ export const rpcContract = defineRpcContract({
     input: session.extend({ threadId: z.string().min(1).max(200), sdp: z.string().min(1).max(131072) }),
     output: z.object({ sdp: z.string(), adapter: z.enum(['native', 'delegated']) }),
   },
+  trace: { input: session.extend({ entries: z.array(traceEntrySchema).max(50) }), output: z.object({ saved: z.boolean() }) },
+  traceSessions: { input: z.object({ threadId: z.string().max(200).optional() }), output: z.array(z.object({ sessionId: z.string(), threadId: z.string(), adapter: z.string(), startedAt: z.number(), bytes: z.number(), dropped: z.number() })) },
+  traceRead: { input: session.extend({ afterId: z.number().int().nonnegative().default(0) }), output: z.array(z.object({ cursor: z.number(), source: z.string(), receivedAt: z.number(), entry: traceEntrySchema })) },
   stop: { input: session, output: z.object({ stopped: z.boolean() }) },
   context: { input: session, output: z.object({ text: z.string().nullable() }) },
   control: { input: session.extend({ action: z.literal('cancelWork') }), output: z.object({ requested: z.boolean() }) },

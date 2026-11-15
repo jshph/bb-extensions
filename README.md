@@ -52,3 +52,18 @@ bb plugin reload live-voice
 The plugin also exposes schema-validated RPC methods through `bb plugin rpc inspect live-voice`: `available`, `start`, `stop`, `context`, `poll`, `delegate`, and `control`. `start` requires a caller-owned WebRTC SDP offer; the CLI does not record audio. `poll` takes an optional `afterSeq` cursor. `control` accepts `cancelWork`. `delegate` is only for the detached Claude adapter.
 
 End existing calls before upgrading, then start a new call. The source and installed package retain the provisional `live-voice` identity until naming is settled.
+
+## Per-call diagnostics
+
+Version 0.2.1 records local, bounded traces for new calls. They include browser wall-clock and monotonic elapsed timestamps, server receipt timestamps, sequence numbers, received turn/transcript/delegation events, exact background context chunks sent, context acknowledgements, context delivery gate state, playback start/block events, connection state and closure reasons. Claude traces also correlate backing updates with browser receipt and sent delegation chunks. Codex traces capture backing events observed through BB; the native app-server's outgoing delegation wire chunks are not exposed to this plugin.
+
+No raw audio, SDP, transport credentials, reasoning, or tool output is recorded. **Spoken transcripts and delivered context text are recorded**, so traces can contain private conversation/source material. They stay in the plugin database on this BB server. Retention is the latest 20 calls, seven days, and 2 MB per call; cleanup runs every ten seconds and on access. Oversized transcript/backing entries are explicitly marked truncated at 32,000 characters; sent context chunks are captured whole. The session's `dropped` count reports storage-cap drops. Missing browser sequence numbers indicate unsaved/dropped batches. A browser crash or page close can lose the last unsaved batch; tracing is best effort and never waits before stopping voice.
+
+Inspect schemas with `bb plugin rpc inspect live-voice`. List calls and then page the selected trace:
+
+```sh
+bb plugin rpc call live-voice traceSessions --input-file /tmp/voice-thread.json --json
+bb plugin rpc call live-voice traceRead --input-file /tmp/voice-call.json --json
+```
+
+The first input is `{ "threadId": "thr_..." }` (or `{}` for all calls). The second is `{ "sessionId": "UUID", "afterId": 0 }`; set `afterId` to the last returned `cursor` to read the next page, until it is empty. Traces survive call end and plugin reload. Browser timestamps and server clocks can differ: use browser `elapsedMs` for browser ordering, server `receivedAt` for ingestion, and `eventAt` for original BB backing-event timestamps. `context.sent` means the browser handed bytes to WebRTC; `context.acknowledged` is the session acknowledgement, not proof of model attention or audible playback. `audio.play.started` means playback was allowed, not that a physical speaker was heard. Turn events report the provider's decisions; they do not expose its internal VAD confidence or audio boundary samples. No turn detection, prompts, or response triggers are changed by tracing.

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { rpcContract } from './contract';
 import { VoiceClient } from './voice-client';
 import { SpokenConversation } from './conversation';
+import { BrowserTrace } from './trace';
 
 const eventSchema = z.object({
   type: z.string(),
@@ -31,6 +32,7 @@ function Voice({ threadId }: { threadId: string }) {
   const contextRequested = useRef(false);
   const adapter = useRef<'native' | 'delegated'>('delegated');
   const afterSeq = useRef(0);
+  const diagnostics = useRef<BrowserTrace | null>(null);
   const replyText = useRef(new Map<string, string>());
   const synchronize = useRef<() => void>(() => {});
   const refreshing = useRef(false);
@@ -49,6 +51,7 @@ function Voice({ threadId }: { threadId: string }) {
     if (result.backgroundContext) current.addBackgroundContext(result.backgroundContext);
     for (const update of result.updates) {
       if (update.seq <= afterSeq.current) continue;
+      diagnostics.current?.record('backing.received', { id: update.id, updateSeq: update.seq, characters: update.text.length, final: update.final, channel: update.channel });
       if (update.text) {
         current.sendResult(update.id, update.text, update.channel);
         if (update.channel === 'speakable') replyText.current.set(update.id, (replyText.current.get(update.id) ?? '') + update.text);
@@ -77,7 +80,16 @@ function Voice({ threadId }: { threadId: string }) {
     }
     delivered.current.clear(); conversation.current = new SpokenConversation(); contextRequested.current = false; afterSeq.current = 0; replyText.current.clear();
     setMuted(false); setBlocked(false); setBackend('ready');
+    let traceReady!: () => void;
+    const ready = new Promise<void>(resolve => { traceReady = resolve; });
+    const diagnostic = new BrowserTrace(async entries => {
+      await ready;
+      const result = await rpc.call('trace', { sessionId: next.sessionId, entries });
+      if (!result.saved) throw new Error('Trace session unavailable');
+    });
+    diagnostics.current = diagnostic;
     const next = new VoiceClient({
+      trace: diagnostic.record,
       audio: audio.current,
       mediaDevices: navigator.mediaDevices,
       createPeer: () => new RTCPeerConnection(),
@@ -87,8 +99,8 @@ function Voice({ threadId }: { threadId: string }) {
       },
       audioBlocked: () => setBlocked(true),
       request: async command => {
-        if (command.action === 'start') { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; return result; }
-        if (command.action === 'stop') await rpc.call('stop', { sessionId: command.sessionId });
+        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; diagnostic.record('adapter.selected', { state: result.adapter }); return result; } finally { traceReady(); } }
+        if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId }); }
         else apply(await rpc.call('poll', { sessionId: command.sessionId, afterSeq: afterSeq.current }), next);
         return { sdp: null };
       },
@@ -129,7 +141,7 @@ function Voice({ threadId }: { threadId: string }) {
       },
     });
     client.current = next;
-    void next.start();
+    void next.start().finally(traceReady);
   }
 
   const label = status === 'connecting' ? 'Connecting voice…' : backend === 'attention' ? 'Approve in BB' : backend === 'working' ? 'Agent working' : muted ? 'Mic muted' : 'Voice connected';
