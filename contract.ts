@@ -1,0 +1,23 @@
+import { defineRpcContract } from '@get-bb/plugin-sdk';
+import { z } from 'zod';
+import { spokenTurnSchema } from './conversation';
+
+const session = z.object({ sessionId: z.string().uuid() });
+export const rpcContract = defineRpcContract({
+  available: { input: z.object({ threadId: z.string().min(1).max(200) }), output: z.object({ available: z.boolean() }) },
+  start: {
+    input: session.extend({ threadId: z.string().min(1).max(200), sdp: z.string().min(1).max(131072) }),
+    output: z.object({ sdp: z.string(), adapter: z.enum(['native', 'delegated']) }),
+  },
+  stop: { input: session, output: z.object({ stopped: z.boolean() }) },
+  context: { input: session, output: z.object({ text: z.string().nullable() }) },
+  control: { input: session.extend({ action: z.literal('cancelWork') }), output: z.object({ requested: z.boolean() }) },
+  poll: {
+    input: session.extend({ afterSeq: z.number().int().nonnegative().optional() }),
+    output: z.object({ updates: z.array(z.object({ seq: z.number(), id: z.string(), text: z.string(), channel: z.enum(['speakable', 'developer']), final: z.boolean() })), state: z.enum(['ready', 'working', 'attention']), backgroundContext: z.string().nullable(), ended: z.string().nullable() }),
+  },
+  delegate: {
+    input: session.extend({ id: z.string().min(1).max(200), text: z.string().trim().min(1).max(12000), turns: z.array(spokenTurnSchema).max(100).refine(turns => turns.reduce((size, turn) => size + turn.text.length, 0) <= 16000 && turns.every((turn, index) => index === 0 || turn.seq > turns[index - 1]!.seq), 'Spoken turns must be ordered and total at most 16000 characters') }),
+    output: z.object({ accepted: z.boolean() }),
+  },
+});
