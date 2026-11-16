@@ -14,7 +14,7 @@ it('keeps native Codex delegation on the existing provider connection and ends o
   const commands: NativeVoiceCommand[] = [];
   await createPlugin(detached, async (_bb, _threadId, command) => { commands.push(command); return { sdp: command.action === 'start' ? 'native-answer' : null }; })(bb);
   try {
-    expect(await harness.behavior.callRpc('start', start)).toEqual({ sdp: 'native-answer', adapter: 'native' });
+    expect(await harness.behavior.callRpc('start', start)).toEqual({ sdp: 'native-answer', adapter: 'native', diagnostics: 'basic' });
     await harness.behavior.callRpc('poll', { sessionId });
     await expect(harness.behavior.callRpc('delegate', { sessionId, id: 'duplicate', text: 'Read a file', turns: [] })).rejects.toThrow('must not execute them twice');
     await harness.behavior.callRpc('stop', { sessionId });

@@ -58,11 +58,12 @@ export function createBriefingCache(bb: BbPluginApi, db: Db, generate: (source: 
   return {
     watched, inspect, prune,
     async request(threadId: string) { watch(threadId); const status = await inspect(threadId); if (status.state !== 'busy' && status.state !== 'ready') enqueue(threadId); return status; },
-    async startup(threadId: string) {
+    async startup(threadId: string) { return (await this.startupStatus(threadId)).text; },
+    async startupStatus(threadId: string) {
       watch(threadId);
       const status = await inspect(threadId);
-      if (status.state !== 'ready') { if (status.state !== 'busy') enqueue(threadId); return null; }
-      return startupReference(status.text!);
+      if (status.state !== 'ready') { if (status.state !== 'busy') enqueue(threadId); return { state: status.state, generatedAt: status.generatedAt, text: null }; }
+      return { state: status.state, generatedAt: status.generatedAt, text: startupReference(status.text!) };
     },
     invalidate(threadId: string) { if (!disposed && watched(threadId)) { db.prepare("UPDATE voice_briefings SET status = 'stale', text = NULL WHERE thread_id = ?").run(threadId); if (current?.threadId === threadId) current.abort.abort(); } },
     forget(threadId: string) { queue.delete(threadId); if (current?.threadId === threadId) current.abort.abort(); db.prepare('DELETE FROM voice_briefings WHERE thread_id = ?').run(threadId); },

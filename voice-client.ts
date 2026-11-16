@@ -1,4 +1,4 @@
-import { describeVoiceEvent, type TraceSink } from './trace';
+import { describeVoiceEvent, failureReason, type Diagnostics, type TraceSink } from './trace';
 import { z } from "zod";
 
 export type VoiceRequest =
@@ -17,6 +17,7 @@ export interface VoiceClientOptions {
   ): void;
   audioBlocked(): void;
   trace?: TraceSink;
+  diagnostics?(): Diagnostics;
   event?(value: unknown): void;
 }
 
@@ -33,6 +34,7 @@ export class VoiceClient {
   private assistantActive = false;
   private contextPending = false;
   private requested = false;
+  private lastGate = '';
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private heartbeatPending = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -105,7 +107,7 @@ export class VoiceClient {
         } catch {
           return;
         }
-        const diagnostic = describeVoiceEvent(value);
+        const diagnostic = this.options.trace ? describeVoiceEvent(value, this.options.diagnostics?.() ?? 'basic') : null;
         if (diagnostic) this.options.trace?.("realtime.received", diagnostic);
         this.options.event?.(value);
         const parsed = z
@@ -190,7 +192,10 @@ export class VoiceClient {
   }
 
   private flushBackgroundContext(): void {
-    if (this.backgroundContext) this.options.trace?.("context.gate", { inputActive: this.inputActive, assistantActive: this.assistantActive, firstExchangeDone: this.firstExchangeDone, contextPending: this.contextPending });
+    if (this.backgroundContext && this.options.diagnostics?.() === 'detailed') {
+      const gate = [this.inputActive, this.assistantActive, this.firstExchangeDone, this.contextPending].join(',');
+      if (gate !== this.lastGate) { this.lastGate = gate; this.options.trace?.('context.gate', { inputActive: this.inputActive, assistantActive: this.assistantActive, firstExchangeDone: this.firstExchangeDone, contextPending: this.contextPending }); }
+    }
     if (
       this.stopped ||
       this.contextSent ||
@@ -220,7 +225,7 @@ export class VoiceClient {
           content: [{ type: "input_text", text: chunk }],
         }),
       );
-      this.options.trace?.("context.sent", { channel: "developer", text: chunk, bytes });
+      this.options.trace?.("context.sent", () => ({ channel: "developer", text: chunk, bytes }));
       this.backgroundContext = this.backgroundContext.slice(chunk.length);
       if (!this.backgroundContext) {
         this.contextSent = true;
@@ -237,11 +242,11 @@ export class VoiceClient {
     }
   }
 
-  sendResult(id: string, text: string, channel: 'speakable' | 'developer' = 'speakable'): void {
+  sendResult(id: string, text: string, channel: 'speakable' | 'developer' = 'speakable', updateSeq?: number): void {
     if (this.stopped || this.channel?.readyState !== 'open') { this.options.trace?.("delegation.unsent", { id, characters: text.length, state: this.channel?.readyState ?? "absent" }); return; }
     for (const chunk of utf8Chunks(text)) {
       this.channel.send(JSON.stringify({ type: 'delegation.context.append', delegation_item_id: id, channel, content: [{ type: 'input_text', text: chunk }] }));
-      this.options.trace?.('delegation.sent', { id, channel, text: chunk, bytes: new TextEncoder().encode(chunk).length });
+      this.options.trace?.('delegation.sent', () => ({ id, channel, updateSeq, text: chunk, bytes: new TextEncoder().encode(chunk).length }));
     }
   }
 
@@ -254,7 +259,7 @@ export class VoiceClient {
 
   stop(message: string | null = null): void {
     if (this.stopped) return;
-    this.options.trace?.("client.stop", { text: (message ?? "Call ended without an error reason").slice(0, 32000) });
+    this.options.trace?.("client.stop", () => ({ reason: message ? failureReason(message) : "ended", ...(this.options.diagnostics?.() === "detailed" && message ? { text: message.slice(0, 32000) } : {}) }));
     this.stopped = true;
     clearTimeout(this.timer);
     clearInterval(this.heartbeat);

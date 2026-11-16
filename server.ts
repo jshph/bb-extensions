@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { rpcContract } from './contract';
@@ -8,15 +8,15 @@ import { DelegationContext, DelegationReply } from './delegation';
 import { nativeVoice } from './native';
 import { WakeSignal } from './signals';
 import { createTraceStore } from './trace-store';
-import type { TraceData } from './trace';
+import { acceptsTrace, failureReason, rateLimitedWarning, selectTrace, type Diagnostics, type TraceData } from './trace';
 import { compactBriefing, type BackgroundMode } from './background';
 import { createBriefingCache } from './briefing-cache';
 import { synthesizeBriefing } from './synthesize';
 
 type Update = { seq: number; id: string; text: string; channel: 'speakable' | 'developer'; final: boolean };
-interface Job { id: string; abort: AbortController; signal: WakeSignal; reply: DelegationReply; finished: boolean; }
+interface Job { id: string; abort: AbortController; signal: WakeSignal; reply: DelegationReply; finished: boolean; emitted: boolean; }
 interface Session {
-  id: string; threadId: string; adapter: 'native' | 'delegated'; abort: AbortController; touched: number; startedAt: number; backgroundMode: BackgroundMode; title: string | null;
+  id: string; threadId: string; adapter: 'native' | 'delegated'; abort: AbortController; touched: number; startedAt: number; backgroundMode: BackgroundMode; title: string | null; diagnostics: Diagnostics; warn(): void;
   updates: Update[]; sequence: number; superseded: Set<string>; seen: Set<string>; job: Job | null; attention: boolean;
   context: DelegationContext; backgroundContext: string | null; ended: string | null;
   nativeSignal: WakeSignal; nativeCursor: number; nativeWorking: boolean; notifying: boolean;
@@ -24,16 +24,19 @@ interface Session {
 
 export function createPlugin(connect?: (sdp: string, startupBriefing?: string | null) => Promise<string>, nativeConnect: typeof nativeVoice = nativeVoice, synthesize: typeof synthesizeBriefing = synthesizeBriefing) {
   return async function plugin(bb: BbPluginApi) {
-    const settings = bb.settings.define({ backgroundMode: { type: 'select', label: 'Voice background', description: 'Cached is experimental: a current synthesized briefing is supplied at startup; unavailable briefings use retrieval for that call. Off disables background. Briefing and full retain comparison modes. Changes apply to new calls.', options: ['off', 'cached', 'briefing', 'full'], default: 'off' }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
+    const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, backgroundMode: { type: 'select', label: 'Voice background', description: 'Cached is experimental: a current synthesized briefing is supplied at startup; unavailable briefings use retrieval for that call. Off disables background. Briefing and full retain comparison modes. Changes apply to new calls.', options: ['off', 'cached', 'briefing', 'full'], default: 'off' }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
     const openCall = connect ?? (async (sdp: string, startupBriefing?: string | null) => createSubscriptionCall(sdp, (await settings.get()).codexCommand, startupBriefing));
     const sessions = new Map<string, Session>();
     const traces = createTraceStore(bb);
     const briefings = createBriefingCache(bb, traces.database, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal));
     settings.onChange(next => { if (next.backgroundMode !== 'cached') briefings.cancel(); });
     let traceSequence = 0;
-    function trace(session: Session, name: string, data: TraceData = {}): void {
-      try { traces.write(session.id, 'server', [{ seq: ++traceSequence, at: Date.now(), elapsedMs: Math.max(0, Date.now() - session.startedAt), name, data }]); }
-      catch { bb.log.warn('Voice diagnostic trace could not be saved'); }
+    function trace(session: Session, name: string, data: TraceData | (() => TraceData) = {}): void {
+      if (!acceptsTrace(name, session.diagnostics)) return;
+      const selected = selectTrace(name, typeof data === 'function' ? data() : data, session.diagnostics);
+      if (!selected) return;
+      try { traces.write(session.id, 'server', [{ seq: ++traceSequence, at: Date.now(), elapsedMs: Math.max(0, Date.now() - session.startedAt), name, data: selected }]); }
+      catch { session.warn(); }
     }
     function changed(session: Session): void {
       if (session.abort.signal.aborted || session.notifying) return;
@@ -42,7 +45,9 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     }
     function emit(session: Session, id: string, text: string, final = false, channel: Update['channel'] = 'speakable'): void {
       if (session.abort.signal.aborted) return;
-      trace(session, 'backing.update', { id, text: text.slice(0, 32000), characters: text.length, truncated: text.length > 32000, final, channel, updateSeq: session.sequence + 1 });
+      const first = session.job?.id === id && !session.job.emitted && !!text;
+      if (session.job?.id === id && text) session.job.emitted = true;
+      if (session.diagnostics === 'detailed' || first || final) trace(session, session.diagnostics === 'detailed' ? 'backing.update' : 'backing.milestone', () => ({ id, ...(session.diagnostics === 'detailed' ? { text: text.slice(0, 32000), truncated: text.length > 32000 } : {}), characters: text.length, final, channel, updateSeq: session.sequence + 1, state: final ? 'completed' : 'first-result' }));
       session.updates.push({ seq: ++session.sequence, id, text, final, channel });
       while (session.updates.length > 512 || session.updates.reduce((sum, update) => sum + update.text.length, 0) > 128000) session.updates.shift();
       changed(session);
@@ -70,16 +75,16 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     }
     async function observeNative(session: Session): Promise<void> {
       while (!session.abort.signal.aborted) {
-        const rows = await bb.sdk.threads.events.list({ threadId: session.threadId, afterSeq: String(session.nativeCursor), order: 'asc', limit: '100', signal: session.abort.signal });
+        const rows = await bb.sdk.threads.events.list({ threadId: session.threadId, afterSeq: String(session.nativeCursor), order: 'asc', limit: '100', ...(session.diagnostics === 'basic' ? { types: ['turn/started', 'turn/completed', 'thread/extensionState/updated'] as const } : {}), signal: session.abort.signal });
         for (const row of rows) {
           session.nativeCursor = Math.max(session.nativeCursor, row.seq);
-          if (row.type === 'item/agentMessage/delta' && !row.data.parentToolCallId) trace(session, 'native.backing.delta', { id: row.data.itemId, text: row.data.delta.slice(0, 32000), characters: row.data.delta.length, truncated: row.data.delta.length > 32000, eventAt: row.createdAt, updateSeq: row.seq });
-          if (row.type === 'item/completed' && row.data.item.type === 'agentMessage' && !row.data.item.parentToolCallId) trace(session, 'native.backing.completed', { id: row.data.item.id, text: row.data.item.text.slice(0, 32000), characters: row.data.item.text.length, truncated: row.data.item.text.length > 32000, eventAt: row.createdAt, updateSeq: row.seq });
+          if (row.type === 'item/agentMessage/delta' && !row.data.parentToolCallId) trace(session, 'native.backing.delta', () => ({ id: row.data.itemId, text: row.data.delta.slice(0, 32000), characters: row.data.delta.length, truncated: row.data.delta.length > 32000, eventAt: row.createdAt, updateSeq: row.seq }));
+          if (row.type === 'item/completed' && row.data.item.type === 'agentMessage' && !row.data.item.parentToolCallId) { const item = row.data.item; trace(session, 'native.backing.completed', () => ({ id: item.id, text: item.text.slice(0, 32000), characters: item.text.length, truncated: item.text.length > 32000, eventAt: row.createdAt, updateSeq: row.seq })); }
           if (row.type === 'turn/started' || row.type === 'turn/completed') { trace(session, 'native.backing.turn', { type: row.type, eventAt: row.createdAt, updateSeq: row.seq }); session.nativeWorking = row.type === 'turn/started'; changed(session); }
           if (row.type !== 'thread/extensionState/updated' || row.data.kind !== 'provider-codex/voice') continue;
           const state = z.object({ sessionId: z.string(), status: z.string(), message: z.string().nullable(), backgroundContext: z.string().optional() }).safeParse(row.data.payload);
           if (!state.success || state.data.sessionId !== session.id) continue;
-          trace(session, 'native.state', { state: state.data.status, characters: state.data.backgroundContext?.length });
+          trace(session, 'native.state', { state: state.data.status, ...(state.data.status === 'active' ? {} : { reason: failureReason(state.data.message) }), characters: state.data.backgroundContext?.length });
           if (state.data.backgroundContext) session.backgroundContext = await background(session, state.data.backgroundContext);
           if (state.data.status !== 'active') session.ended = state.data.message ?? 'Native voice session ended';
           changed(session);
@@ -98,7 +103,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
       const active = thread.status !== 'idle' && thread.status !== 'error';
       if (active && (!previous || previous.finished || !previous.reply.accepted)) throw new Error('The backing thread is already working on another task. Wait or cancel it in BB.');
       const prepared = session.context.prepare(marker, text, turns);
-      trace(session, 'backing.submit', { id: job.id, text, state: active ? 'steer' : 'start' });
+      trace(session, 'backing.submit', () => ({ id: job.id, ...(session.diagnostics === 'detailed' ? { text } : {}), state: active ? 'steer' : 'start' }));
       const sent = await bb.sdk.threads.send({ threadId: session.threadId, mode: active ? 'steer' : 'start', input: prepared.input });
       if (sent.delivery !== 'sent') throw new Error('The backing thread did not accept this request immediately.');
       if (previous) { session.superseded.add(previous.id); previous.abort.abort(); }
@@ -109,7 +114,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
         const rows = await bb.sdk.threads.events.list({ threadId: session.threadId, afterSeq: String(cursor), order: 'asc', limit: '100', signal });
         for (const row of rows) {
           cursor = Math.max(cursor, row.seq); job.reply.consume(row);
-          if (job.reply.accepted && !committed) { prepared.accept(); committed = true; }
+          if (job.reply.accepted && !committed) { prepared.accept(); committed = true; trace(session, 'backing.accepted', { id: job.id }); }
           if (!job.reply.accepted || row.scope.kind !== 'turn' || row.scope.turnId !== job.reply.turnId || session.job !== job) continue;
           if (row.type === 'item/agentMessage/delta' && !row.data.parentToolCallId) {
             streamed.set(row.data.itemId, (streamed.get(row.data.itemId) ?? '') + row.data.delta);
@@ -136,7 +141,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     }
     bb.rpc.register(rpcContract, {
       trace: ({ sessionId, entries }) => ({ saved: traces.write(sessionId, 'browser', entries) }),
-      traceSessions: ({ threadId }) => traces.list(threadId) as { sessionId: string; threadId: string; adapter: string; startedAt: number; bytes: number; dropped: number }[],
+      traceSessions: ({ threadId }) => traces.list(threadId) as { sessionId: string; threadId: string; adapter: string; startedAt: number; diagnostics: Diagnostics; bytes: number; dropped: number }[],
       traceRead: ({ sessionId, afterId }) => traces.read(sessionId, afterId),
       briefingStatus: ({ threadId }) => briefings.inspect(threadId),
       prepareBriefing: ({ threadId }) => briefings.request(threadId),
@@ -148,23 +153,25 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
         if (sessions.size >= 4) throw new Error('Four Live Voice calls are already open. End a call first.');
         const callConfig = await settings.get();
         const adapter: Session['adapter'] = thread.providerId === 'codex' ? 'native' : 'delegated';
-        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: callConfig.backgroundMode as BackgroundMode, title: thread.title, updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active', notifying: false };
+        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: callConfig.backgroundMode as BackgroundMode, title: thread.title, diagnostics: callConfig.diagnostics as Diagnostics, warn: rateLimitedWarning(() => bb.log.warn('Voice diagnostic records could not be saved')), updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active', notifying: false };
         sessions.set(sessionId, session);
-        try { traces.start(sessionId, threadId, adapter); trace(session, 'session.start', { state: adapter }); trace(session, 'context.policy', { state: session.backgroundMode }); } catch { bb.log.warn('Voice diagnostic session could not be saved'); }
+        try { traces.start(sessionId, threadId, adapter, session.diagnostics); trace(session, 'session.start', { state: adapter }); trace(session, 'context.policy', { state: session.backgroundMode }); trace(session, 'diagnostics.policy', { state: session.diagnostics }); } catch { session.warn(); }
         try {
-          const startupBriefing = session.backgroundMode === 'cached' ? await briefings.startup(threadId) : undefined;
-          if (session.backgroundMode === 'cached') trace(session, 'context.startup', { state: startupBriefing ? 'ready' : 'lookup', text: startupBriefing ?? '', characters: startupBriefing?.length ?? 0 });
+          const startup = session.backgroundMode === 'cached' ? await briefings.startupStatus(threadId) : undefined;
+          const startupBriefing = startup?.text;
+          if (startup) trace(session, 'context.startup', () => ({ state: startup.state, reason: 'attempt', ...(startup.generatedAt ? { ageMs: Math.max(0, Date.now() - startup.generatedAt) } : {}), characters: startupBriefing?.length ?? 0, ...(startupBriefing ? { fingerprint: createHash('sha256').update(startupBriefing).digest('hex'), ...(session.diagnostics === 'detailed' ? { text: startupBriefing } : {}) } : {}) }));
           let answer: string;
           if (adapter === 'native') {
             const latest = await bb.sdk.threads.events.list({ threadId, order: 'desc', limit: '1' }); session.nativeCursor = latest[0]?.seq ?? 0;
             const result = await nativeConnect(bb, threadId, { action: 'start', sessionId, sdp, ...(session.backgroundMode === 'cached' ? { experimental_startupBriefing: startupBriefing ?? null } : {}) });
             if (!result.sdp) throw new Error('Native Codex did not return an SDP answer');
             answer = result.sdp;
-            void observeNative(session).catch(error => { if (!session.abort.signal.aborted) { session.ended = String(error); changed(session); } });
+            void observeNative(session).catch(error => { if (!session.abort.signal.aborted) { session.ended = String(error); trace(session, 'session.failed', { reason: failureReason(error) }); changed(session); } });
           } else answer = await openCall(sdp, startupBriefing);
           if (session.abort.signal.aborted) throw new Error('Voice call ended while connecting.');
-          return { sdp: answer, adapter, ...(session.backgroundMode === 'cached' ? { briefing: startupBriefing ? 'ready' as const : 'lookup' as const } : {}) };
-        } catch (error) { await end(sessionId); throw error; }
+          trace(session, 'session.connect', { state: 'negotiated' });
+          return { sdp: answer, adapter, diagnostics: session.diagnostics, ...(session.backgroundMode === 'cached' ? { briefing: startupBriefing ? 'ready' as const : 'lookup' as const } : {}) };
+        } catch (error) { trace(session, 'session.failed', { reason: failureReason(error) }); await end(sessionId); throw error; }
       },
       stop: async ({ sessionId }) => ({ stopped: await end(sessionId) }),
       control: async ({ sessionId }) => {
@@ -195,11 +202,12 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
         if (session.seen.size >= 100) throw new Error('Start a fresh voice call to continue.');
         session.seen.add(id);
         const previous = session.job;
-        const job: Job = { id, abort: new AbortController(), signal: new WakeSignal(), reply: new DelegationReply('pending'), finished: false };
+        const job: Job = { id, abort: new AbortController(), signal: new WakeSignal(), reply: new DelegationReply('pending'), finished: false, emitted: false };
         session.job = job; changed(session);
         const abort = () => job.abort.abort(); session.abort.signal.addEventListener('abort', abort, { once: true });
         void run(session, job, text, turns, previous).catch(error => {
           if (!job.abort.signal.aborted) {
+            trace(session, 'backing.failed', { id: job.id, reason: failureReason(error) });
             emit(session, id, 'The request could not be completed: ' + (error instanceof Error ? error.message : String(error)), true);
             if (previous && !previous.finished) session.job = previous;
           }
@@ -216,7 +224,8 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     bb.events.on('thread.idle', async event => { wake(event); if ((await settings.get()).backgroundMode === 'cached' && briefings.watched(event.thread.id)) await briefings.request(event.thread.id); });
     bb.events.on('thread.active', event => briefings.invalidate(event.thread.id)); bb.events.on('thread.failed', wake);
     bb.events.on('interaction.pending', event => { for (const session of sessions.values()) if (session.threadId === event.thread.id) { session.attention = true; changed(session); } });
-    const timer = setInterval(() => { try { traces.prune(); briefings.prune(); } catch { bb.log.warn('Voice trace retention cleanup failed'); } for (const session of sessions.values()) if (Date.now() - session.touched > 60000) void end(session.id); }, 10000);
+    const warnCleanup = rateLimitedWarning(() => bb.log.warn('Voice trace retention cleanup failed'));
+    const timer = setInterval(() => { try { traces.prune(); briefings.prune(); } catch { warnCleanup(); } for (const session of sessions.values()) if (Date.now() - session.touched > 60000) void end(session.id); }, 10000);
     timer.unref?.();
     bb.onDispose(async () => { clearInterval(timer); await briefings.dispose(); await Promise.all([...sessions.keys()].map(end)); });
     const terminal = async ({ thread }: { thread: { id: string } }) => { briefings.forget(thread.id); await Promise.all([...sessions.values()].filter(session => session.threadId === thread.id).map(session => end(session.id))); };

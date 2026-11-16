@@ -63,18 +63,27 @@ End existing calls before upgrading, then start a new call. The source and insta
 
 ## Per-call diagnostics
 
-Version 0.2.1 records local, bounded traces for new calls. They include browser wall-clock and monotonic elapsed timestamps, server receipt timestamps, sequence numbers, received turn/transcript/delegation events, exact background context chunks sent, context acknowledgements, context delivery gate state, playback start/block events, connection state and closure reasons. Claude traces also correlate backing updates with browser receipt and sent delegation chunks. Codex traces capture backing events observed through BB; the native app-server's outgoing delegation wire chunks are not exposed to this plugin.
+Diagnostics default to **basic**: compact metadata for lifecycle, safe failure categories, connection/playback/microphone state, turn boundaries, background policy, startup cache state/age/fingerprint/length, and first/final delegation milestones. Basic excludes transcripts, context/request/result text, individual backing deltas, and chunk timing. Browser filtering happens before transmission and the server enforces each call's frozen policy again, including late batches after call end. Native observation fetches only functional state/turn events in basic mode; Claude's streaming and delivery remain intact.
 
-No raw audio, SDP, transport credentials, reasoning, or raw tool output is recorded. Startup briefings can contain synthesized tool findings. **Spoken transcripts and delivered context text are recorded**, so traces can contain private conversation/source material. They stay in the plugin database on this BB server. Retention is the latest 20 calls, seven days, and 2 MB per call; cleanup runs every ten seconds and on access. Oversized transcript/backing entries are explicitly marked truncated at 32,000 characters; sent context chunks are captured whole. The session's `dropped` count reports storage-cap drops. Missing browser sequence numbers indicate unsaved/dropped batches. A browser crash or page close can lose the last unsaved batch; tracing is best effort and never waits before stopping voice.
+Choose detailed only when investigating a problem:
 
-Inspect schemas with `bb plugin rpc inspect live-voice`. List calls and then page the selected trace:
+```sh
+bb plugin config live-voice set diagnostics detailed
+bb plugin config live-voice set diagnostics basic
+```
+
+Changes apply to fresh calls. Detailed records private spoken/context/request/result text, backing deltas and exact chunk timing. It never records audio, SDP, transport credentials, or reasoning. Legacy full background can contain source/tool material, so detailed full-mode traces can too. Startup traces describe an attempted context input; negotiated connection is recorded separately. Lookup fallback records its actual cache state (missing/busy/preparing/stale/error), not a claim that context was delivered. Native backing observations cannot verify outgoing wire delivery. Neither an acknowledgement nor a content fingerprint proves model attention or physical speaker output.
+
+Traces stay in the plugin's local database and survive call end/reload. Retention is 20 calls and seven days, capped at 256,000 serialized JSON bytes per basic call or 2,000,000 per detailed call, with 32,000 bytes reserved for stop/failure evidence. These are logical limits, excluding SQLite/index/WAL overhead and the separate product briefing cache. Existing detailed traces keep their original policy and age out normally; this update does not purge them. Freed SQLite pages can be reused without shrinking the file immediately. Basic reduces diagnostic disk/transport overhead; it does not change the context sent to voice or subscription usage for synthesis.
+
+Inspect with `bb plugin rpc inspect live-voice`, `traceSessions` (`{ "threadId": "thr_..." }` or `{}`) and `traceRead` (`{ "sessionId": "UUID", "afterId": 0 }`). Page afterId using the last returned cursor until empty. Sessions report their frozen diagnostics policy. The CLI form is:
 
 ```sh
 bb plugin rpc call live-voice traceSessions --input-file /tmp/voice-thread.json --json
 bb plugin rpc call live-voice traceRead --input-file /tmp/voice-call.json --json
 ```
 
-The first input is `{ "threadId": "thr_..." }` (or `{}` for all calls). The second is `{ "sessionId": "UUID", "afterId": 0 }`; set `afterId` to the last returned `cursor` to read the next page, until it is empty. Traces survive call end and plugin reload. Browser timestamps and server clocks can differ: use browser `elapsedMs` for browser ordering, server `receivedAt` for ingestion, and `eventAt` for original BB backing-event timestamps. `context.sent` means the browser handed bytes to WebRTC; `context.acknowledged` is the session acknowledgement, not proof of model attention or audible playback. `audio.play.started` means playback was allowed, not that a physical speaker was heard. Turn events report the provider's decisions; they do not expose its internal VAD confidence or audio boundary samples. No turn detection, prompts, or response triggers are changed by tracing.
+The dropped counter reports budget drops. Browser sequence gaps, truncation flags and unsaved exit batches can also indicate incomplete evidence. Browser elapsedMs is monotonic; server elapsedMs uses wall time. Server sequence numbers are plugin-global, so per-call server gaps alone do not establish loss. Detailed delivery records correlate Claude updates with updateSeq; native and Claude timings are not equivalent end-to-end measurements. Trace-save warnings are limited to once per minute per call/browser collector. Diagnostics never wait before stopping voice or trigger model calls, response generation, or custom turn detection.
 
 ## Comparing background behavior
 
@@ -95,4 +104,4 @@ bb plugin rpc call live-voice prepareBriefing --input-file /tmp/voice-thread.jso
 bb plugin rpc call live-voice forgetBriefing --input-file /tmp/voice-thread.json --json
 ```
 
-`briefingStatus` returns `missing`, `busy`, `preparing`, `ready`, `stale`, or `error`; only ready responses include the JSON text. `prepareBriefing` watches the thread and queues preparation when idle without waiting for synthesis. It can explicitly prepare a cache even while background is off. `forgetBriefing` deletes the cache and watch. Switching away from cached cancels queued/in-progress automatic preparation; existing calls keep their startup policy. The call status indicates “briefed” or “context on request”; `context.startup` in its trace records the exact initial reference (or a lookup fallback). The `start` RPC returns `briefing: ready | lookup` in cached mode. Set background to `off` to restore the baseline for new calls.
+`briefingStatus` returns `missing`, `busy`, `preparing`, `ready`, `stale`, or `error`; only ready responses include the JSON text. `prepareBriefing` watches the thread and queues preparation when idle without waiting for synthesis. It can explicitly prepare a cache even while background is off. `forgetBriefing` deletes the cache and watch. Switching away from cached cancels queued/in-progress automatic preparation; existing calls keep their startup policy. The call status indicates “briefed” or “context on request”; `context.startup` records attempted startup cache metadata (and the exact reference only in detailed mode). The `start` RPC returns `briefing: ready | lookup` in cached mode. Set background to `off` to restore the baseline for new calls.

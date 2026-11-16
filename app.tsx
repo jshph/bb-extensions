@@ -52,9 +52,10 @@ function Voice({ threadId }: { threadId: string }) {
     if (result.backgroundContext) current.addBackgroundContext(result.backgroundContext);
     for (const update of result.updates) {
       if (update.seq <= afterSeq.current) continue;
-      diagnostics.current?.record('backing.received', { id: update.id, updateSeq: update.seq, characters: update.text.length, final: update.final, channel: update.channel });
+      if (diagnostics.current?.detailed || !delivered.current.has(update.id) || update.final) diagnostics.current?.record(diagnostics.current.detailed ? 'backing.received' : 'delivery.received', { id: update.id, updateSeq: update.seq, characters: update.text.length, final: update.final, channel: update.channel });
+      delivered.current.add(update.id);
       if (update.text) {
-        current.sendResult(update.id, update.text, update.channel);
+        current.sendResult(update.id, update.text, update.channel, update.seq);
         if (update.channel === 'speakable') replyText.current.set(update.id, (replyText.current.get(update.id) ?? '') + update.text);
       }
       if (update.final) conversation.current.rememberBackendAnswer(replyText.current.get(update.id) ?? '');
@@ -91,6 +92,7 @@ function Voice({ threadId }: { threadId: string }) {
     diagnostics.current = diagnostic;
     const next = new VoiceClient({
       trace: diagnostic.record,
+      diagnostics: () => diagnostic.detailed ? 'detailed' : 'basic',
       audio: audio.current,
       mediaDevices: navigator.mediaDevices,
       createPeer: () => new RTCPeerConnection(),
@@ -100,7 +102,7 @@ function Voice({ threadId }: { threadId: string }) {
       },
       audioBlocked: () => setBlocked(true),
       request: async command => {
-        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; setBriefing(result.briefing ?? null); diagnostic.record('adapter.selected', { state: result.adapter }); return result; } finally { traceReady(); } }
+        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; setBriefing(result.briefing ?? null); diagnostic.configure(result.diagnostics); return result; } finally { traceReady(); } }
         if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId }); }
         else apply(await rpc.call('poll', { sessionId: command.sessionId, afterSeq: afterSeq.current }), next);
         return { sdp: null };

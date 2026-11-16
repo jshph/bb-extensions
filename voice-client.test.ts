@@ -11,7 +11,7 @@ function fixture() {
   const peer = { addTrack: vi.fn(), createDataChannel: () => channel, createOffer: async () => ({ type: 'offer', sdp: 'offer' }), setLocalDescription: async () => {}, localDescription: { sdp: 'offer' }, setRemoteDescription: async () => {}, close: vi.fn() };
   const request = vi.fn(async () => ({ sdp: 'answer' }));
   const audio = { play: async () => {}, pause: vi.fn(), srcObject: null };
-  const client = new VoiceClient({ trace: (name, data) => traces.push({ name, data }), audio: audio as unknown as HTMLAudioElement, mediaDevices: { getUserMedia: async () => stream as unknown as MediaStream }, createPeer: () => peer as unknown as RTCPeerConnection, request, state: vi.fn(), audioBlocked: vi.fn() });
+  const client = new VoiceClient({ diagnostics: () => 'detailed', trace: (name, data) => traces.push({ name, data: typeof data === 'function' ? data() : data }), audio: audio as unknown as HTMLAudioElement, mediaDevices: { getUserMedia: async () => stream as unknown as MediaStream }, createPeer: () => peer as unknown as RTCPeerConnection, request, state: vi.fn(), audioBlocked: vi.fn() });
   const event = (value: unknown) => channel.onmessage?.({ data: JSON.stringify(value) });
   return { client, channel, sent, track, request, event, traces };
 }
