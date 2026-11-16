@@ -1,4 +1,4 @@
-Speak with the coding agent in your BB thread while it works. Tandem keeps the conversation connected as you navigate.
+Talk with Codex or Claude in your BB thread using Codex subscription voice. Tandem keeps the conversation connected as you navigate.
 
 ## What you get
 

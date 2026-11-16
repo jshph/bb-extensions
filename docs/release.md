@@ -1,16 +1,16 @@
 # Tandem release status
 
-Tandem 0.3.2 is prepared as an experimental source preview. This document does not announce publication, change repository visibility, or claim compatibility with stock BB.
+Tandem 0.3.3 is prepared as an experimental source preview. This document does not announce publication, change repository visibility, or claim compatibility with stock BB.
 
 ## Installation boundary
 
 - Builds against published Plugin SDK 0.6.144; the installed BB must support the SDK surfaces in use.
-- Native Codex requires the customized `threads.voice` transport bridge and the backing thread’s existing Codex connection. No second writer or API-key fallback is supported.
+- Native Codex requires access to the backing thread’s existing Codex connection. The plugin prefers the proposed `threads.experimental_voice` operation and retains the customized `threads.voice` operation for the current installation. No second writer or API-key fallback is supported.
 - Native cached briefing requires the startup-briefing bridge, introduced with host protocol 269. Native voice selection requires the voice-selection extension, introduced with protocol 270.
 - New-thread voice requires input-free thread initialization, introduced with protocol 271. Older BB versions reject that creation request.
 - Claude transport requires an official Codex CLI signed in with ChatGPT on the BB server; Codex 0.160.1 has been exercised. Its experimental protocol may change.
 
-These protocol numbers identify customized BB changes, not a stock-release compatibility guarantee. The supporting core changes are a separate dependency; this plugin source alone does not install them.
+These protocol numbers identify customized BB changes, not a stock-release compatibility guarantee. The supporting core changes are a separate dependency; this plugin source alone does not install them. See [maintainer context](maintainers.md) for the independent upstream drafts and the difference between the proposed API and the deployed custom build.
 
 ## Naming and upgrades
 
@@ -29,3 +29,10 @@ Cached synthesis uses subscription allowance. Basic diagnostics omit conversatio
 A source snapshot can be shared as a developer preview with the dependency limits above. Before making the existing Git repository public, review its history: earlier revisions include maintainer-specific workspace paths and thread references removed from the current source. A clean source archive avoids shipping that history. Publication of the repository, npm package, marketplace entry or customized BB core is a separate action.
 
 Preserve the existing MIT license and attribution. There has been no trademark or name-availability review for Tandem.
+
+## Changes proposed upstream
+
+- Native voice on an existing Codex thread: [PR #7621](https://github.com/get-bb/bb/pull/7621). The draft exposes bounded startup context, voice selection and handoff instructions as caller configuration; it contains no Tandem prompts, briefing cache or built-in browser UI.
+- Provider initialization before a first coding task: [PR #7620](https://github.com/get-bb/bb/pull/7620), tracking Tandem’s [issue #7619](https://github.com/get-bb/bb/issues/7619). This is related to Conductor’s pending-thread proposal but deliberately initializes the provider for an explicit voice-first action.
+
+These are draft contributions for review, not merged features or a supported BB release. Both are based independently on upstream protocol 265 and propose 266; their final protocol numbers must be coordinated if both land. The current custom installation’s protocol 271 is a separate deployment history, not a requirement to copy into upstream.

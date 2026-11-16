@@ -1,109 +1,67 @@
 # Tandem
 
-One voice interface for Codex and Claude threads in BB, using Codex’s ChatGPT subscription authentication. Tandem is an experimental developer preview. Native Codex voice requires a customized BB bridge; general stock-BB compatibility is not established. See [release status](docs/release.md) before installing or distributing it.
+Talk with the coding agent in your BB thread. Tandem uses Codex subscription voice for the conversation while **Codex or Claude** does the coding work.
 
-## What it does
+For example, open a Claude thread, talk through a change, and hear its findings as it works. Your Claude provider still runs the task with its existing tools and permissions; the voice conversation uses Codex signed in with ChatGPT. You can use the same controls in a Codex thread.
 
-A waveform beside the composer’s dictation microphone starts two-way audio. The waveform initiates the call; while connecting or connected, mute and the red circular hang-up button stay visible beside a noninteractive waveform indicator. The connected/unmuted waveform gently pulses; assistant playback animates its bars and adds a glow. Muted silence is steady. The pulse indicates connection state, not microphone volume. There is no expansion/collapse stage or live-waveform click action in either surface; End stays available while connecting and Reconnect plus End stay available after disconnection. Reduced-motion preferences suppress animation while preserving the glow. Mute affects your microphone. Hang-up closes voice while leaving submitted coding work running. Use BB’s thread controls to explicitly cancel agent work; actions already completed are not undone. Browser-native barge-in remains available when you speak over audio.
+Tandem is an experimental developer preview. Native Codex voice currently needs changes in BB that are being proposed upstream. Installing the plugin alone does not add those changes. See [compatibility and release status](docs/release.md).
 
-Voice stays attached to its original thread as you navigate within BB. On the call’s thread, controls stay beside the composer. Elsewhere, a compact floating dial names the call’s thread and lets you return, mute, or hang up. The dial is portaled outside layout clipping with explicit pointer handling, a nondraggable surface, 36-pixel composer controls that fit its clipped action slot and 44-pixel floating controls. Agent progress and briefing details stay out of the call controls; connection, playback-permission and error feedback remain available. Starting voice in another thread offers an explicit switch; navigation never transfers the call's context or microphone to the thread you are viewing. There is one call per app window (other windows can still have their own calls, subject to the server limits). Closing/reloading the page ends the call. Starting voice again creates a fresh realtime conversation using that thread's configured background policy; it does not restore the previous call's audio conversation. There is no pause/resume state.
+## Using Tandem
 
-On **New thread**, the waveform creates a visible thread using the selected project, environment, provider, model, reasoning level, service tier and permission mode, waits for its provider to initialize, then connects voice. Opening the screen alone creates nothing. Creation sends empty input: no placeholder coding request, draft text, mentions or attachments are submitted. The New thread draft stays intact. Ending during setup prevents a late connection or navigation, but an already-submitted thread creation may still complete and leave the thread in the sidebar. Setup failure leaves the created thread available for inspection and a later voice attempt. Only Codex and Claude selections show the voice action. The SDK's composer selection does not expose provider-specific session option overrides or picker provenance; the thread uses BB's defaults for those fields.
+- Press the waveform beside dictation to start a conversation. While connected, it pulses gently and glows when assistant playback is detected.
+- Mute controls your microphone. The red hang-up button ends voice; submitted coding work can continue. Use BB’s thread controls to cancel agent work.
+- Navigate freely within BB. The call stays attached to its original thread, with a floating dial that lets you return, mute or hang up. Starting voice elsewhere offers an explicit switch.
+- Start from New thread to create a thread using your selected project, environment and agent settings, then connect voice. This sends no placeholder coding request and leaves your draft alone. It requires BB’s initialized-thread support.
 
-New-thread voice requires BB's input-free thread initialization support (host protocol 271). Earlier BB versions reject ordinary empty-input creation; the plugin reports that a BB update is needed. The SDK supports this initialization with `threads.spawn({ projectId, environment, input: [], ... })`; the CLI equivalent is `bb thread spawn --project <id> --initialize-only`.
+Tool approvals remain in BB. Closing or reloading the page ends voice. A later call is a fresh conversation; it does not resume the previous audio conversation. Other tasks already running in a Claude thread are not silently taken over by voice.
 
-The plugin owns the shared browser audio client, controls, session identity, deferred background delivery, leases, context for delegated requests, and UI update delivery.
+## Why a plugin?
 
-- **Codex:** uses the existing provider app-server connection and native realtime delegation. It never opens a second writer for the coding thread or sends the same delegation through BB again. Native progress, permissions, and handoffs remain native.
-- **Claude:** uses a temporary ChatGPT-authenticated Codex app-server to establish WebRTC, detaches it before the browser connects, then routes requests through the selected Claude thread. Thread events wake result readers; BB realtime notifications wake the browser. Root assistant text streams as it arrives rather than waiting for the entire turn. No raw reasoning or tool output is forwarded as speech.
+Tandem provides one conversation experience across coding agents. It decides how spoken corrections become requests, how follow-ups reach work already running, and how results and thread background reach the voice conversation. Keeping that experience in a plugin lets it evolve independently of BB releases and avoids repeating the controls in each coding provider.
 
-Voice follow-ups can steer the plugin’s active Claude task. A task started outside the call is not silently steered or queued. Unsupported steering reports a failure while the original work can continue. Tool approvals stay in BB. Session IDs, request/turn correlation, update sequence cursors, and superseded-request filtering prevent duplicate execution and stale delivery. Reconnects can catch up from a cursor within bounded retention; expired delivery fails explicitly.
+BB still owns coding sessions, tool permissions and provider connections. Native Codex voice needs a small operation on that existing connection; Tandem should not open a second writer or repeat Codex’s native handoffs. Claude uses BB’s normal thread APIs to receive work and return results.
 
-## Requirements and current boundary
+The same separation could support a built-in BB voice interface later. A plugin is a way to maintain and distribute this experience, not a technical requirement for customization. See [the explanation for BB maintainers](docs/maintainers.md) for the proposed core changes and their limits.
 
-Builds against published `@get-bb/plugin-sdk` **0.6.144**. The installed BB must support the SDK surfaces used by the plugin.
+## What you need
 
-**Native Codex additionally requires BB’s `threads.voice` provider transport bridge.** This capability is present in the customized BB installation this plugin was built for. It is not established as available in stock BB releases. The plugin checks for it and fails clearly when missing; it does not replace native Codex with a slower detached transport. The provider bridge and its server/daemon routing remain necessary infrastructure. Only the duplicated provider-owned voice UI/client have been removed in this installation. A general supported upstream transport contract is required before claiming stock-BB Codex compatibility.
+- A compatible BB installation with the SDK features Tandem uses. This version builds against Plugin SDK 0.6.144.
+- The official Codex CLI on the BB server, signed in with ChatGPT. Codex 0.160.1 has been exercised. There is no API-key or API-billing fallback.
+- For Claude threads, your existing Claude provider setup. Voice uses Codex’s subscription; coding work continues through Claude with its existing authentication and billing.
+- For native Codex calls and voice from New thread, the additional BB capabilities described in [release status](docs/release.md). General compatibility with unmodified BB releases is not established.
 
-Claude’s transport requires Codex 0.160.1 or a compatible version, installed and signed in with ChatGPT **on the BB server**. A sign-in only on another enrolled coding host does not suffice. Use the plugin’s Codex executable setting if a shell wrapper selects another account. There is no API-key setting or fallback. Claude retains its existing BB authentication and billing.
+Linux browser/server transport has automated coverage. Physical microphone/speaker routing, Bluetooth, Safari and background/lock-screen behavior need further testing. The Codex realtime protocol is experimental and can require adapter updates.
 
-The subscription transport uses experimental Codex behavior. Codex changes can require an adapter update. Only Linux browser/server transport has been exercised automatically; Bluetooth routing, Safari, and background/lock-screen behavior need device testing.
+## Settings
 
-## Context and response policy
+Open Tandem’s plugin settings:
 
-Version 0.3.0 adds experimental `cached` background. The plugin synthesizes a compact reference from recent user messages, root assistant answers, and completed tool results, using an isolated Codex session authenticated with your ChatGPT subscription. The JSON reference contains goals, decisions, verified findings with event pointers, and unresolved questions. It is historical evidence, not authorization to resume old work.
+- **Voice:** choose a voice for new calls, or keep Codex’s default. Changing it does not interrupt an existing call.
+- **Cached briefing:** optionally prepare a short reference from recent thread activity before a call starts. If no current briefing is ready, that entire call uses the coding agent to look up missing details. This is bounded background, not complete thread memory. Preparation uses Codex subscription allowance.
+- **Diagnostics:** Basic saves compact troubleshooting metadata. Detailed also saves private conversation text and timing locally; enable it only when needed for an investigation.
+- **Codex executable:** select the official CLI on the BB server if its normal command points to another account or wrapper.
 
-A fresh briefing enters the initial realtime context before audio connects, for both Codex and Claude. A missing, stale, busy, or failed preparation starts retrieval-only for that entire call. Preparation never delays startup on model generation, and a result that finishes during a call is reserved for the next call. No cached-mode background is appended after connection. The backing agent remains available for focused evidence retrieval. Initial context is not a guarantee of model attention or silence.
-
-Cached briefing defaults to off. Enable the **Cached briefing** toggle in plugin settings or use `bb plugin config live-voice set cachedBriefing true`, then start a fresh call. Only voice-used or explicitly prepared threads are watched; watched threads refresh after backing turns become idle. Active threads invalidate pending/stored briefings. Synthesis uses the latest 12 user requests and 100 completed items after the last context clear, up to 60,000 source characters, clipping individual items at 6,000 characters. Earlier evidence may be absent. Compiler output is validated, includes only supplied event pointers, and is capped at 3,000 JSON characters (4,000 including framing). It can still omit or misinterpret a fact; ask the backing agent when uncertain.
-
-Briefings are private local plugin data, retained for up to 20 watched threads and seven days. A briefing is usable for 24 hours only while its thread revision matches. Synthesis consumes Codex subscription allowance, runs one job at a time, and uses a 90-second deadline with no API-key fallback. The compiler is instructed to treat source as quoted data, with shell, web, and multi-agent features disabled; observed tool execution rejects preparation. Failed preparation falls back to retrieval.
-
-Cached native Codex calls require the customized startup-briefing bridge (host daemon protocol 269); the bridge is additional to the original transport requirement. Codex delegation still uses the original provider connection.
-
-Delegated instructions and quoted context are agent-only; chat shows new spoken words or a labeled voice-model task. Instructions are sent once per call after provider acceptance, and later requests contain only new or changed spoken turns. Grouped transcripts preserve corrections, continuations, and explicit incompleteness. Exact echoes of backing answers are omitted; paraphrases are conversational reference, not independent evidence. Up to 350 ms is allowed for a user turn to finish before delegation.
-
-Streaming makes available text reach voice sooner; it cannot make the backing model’s research itself faster. Progress and partial findings must retain their qualifications. Existing historical messages are not rewritten.
+Cached briefing defaults to off. Settings apply to new calls. See [thread background](docs/context.md) and [troubleshooting and data retention](docs/diagnostics.md) for details.
 
 ## Install and develop
 
-Install from this private repository using an authenticated Git setup, or from a local checkout:
-
-```sh
-bb plugin install ./bb-plugin-live-voice
-```
-
-For development:
+The source repository remains private while the upstream dependencies and release preparation are reviewed. From an authorized local checkout:
 
 ```sh
 npm ci --include=dev
 npm run check
 npm test
 bb plugin build .
-bb plugin reload live-voice
+bb plugin install .
 ```
 
-The plugin also exposes schema-validated RPC methods through `bb plugin rpc inspect live-voice`: `available`, `start`, `stop`, `context`, `poll`, `delegate`, and `control`. `start` requires a caller-owned WebRTC SDP offer; the CLI does not record audio. `poll` takes an optional `afterSeq` cursor. `control` accepts `cancelWork`. `delegate` is only for the detached Claude adapter.
+For an existing local installation, rebuild and run `bb plugin reload live-voice`. Reloading ends active voice calls; validate with a fresh call.
 
-End existing calls before upgrading, then start a new call. Tandem retains the package name `bb-plugin-live-voice` and plugin ID `live-voice` so existing installations keep their settings, briefing cache and traces. The project and plugin display name are Tandem; CLI commands continue to use `live-voice`.
-
-## Per-call diagnostics
-
-Diagnostics default to **basic**: compact metadata for lifecycle, safe failure categories, connection/playback/microphone state, turn boundaries, background policy, startup cache state/age/fingerprint/length, and first/final delegation milestones. Basic excludes transcripts, context/request/result text, individual backing deltas, and chunk timing. Browser filtering happens before transmission and the server enforces each call's frozen policy again, including late batches after call end. Native observation fetches only functional state/turn events in basic mode; Claude's streaming and delivery remain intact.
-
-Choose detailed only when investigating a problem:
+The display name is **Tandem**. Its package name stays `bb-plugin-live-voice` and plugin ID stays `live-voice` so existing settings, briefing cache and traces remain available. CLI examples therefore use that ID:
 
 ```sh
-bb plugin config live-voice set diagnostics detailed
-bb plugin config live-voice set diagnostics basic
+bb plugin config live-voice set cachedBriefing true
+bb plugin rpc inspect live-voice
 ```
 
-Changes apply to fresh calls. Detailed records private spoken/context/request/result text, backing deltas and exact chunk timing. It never records audio, SDP, transport credentials, or reasoning. Historical detailed traces from the retired full-background mode can contain source/tool material. Startup traces describe an attempted context input; negotiated connection is recorded separately. Lookup fallback records its actual cache state (missing/busy/preparing/stale/error), not a claim that context was delivered. Native backing observations cannot verify outgoing wire delivery. Neither an acknowledgement nor a content fingerprint proves model attention or physical speaker output.
-
-Traces stay in the plugin's local database and survive call end/reload. Retention is 20 calls and seven days, capped at 256,000 serialized JSON bytes per basic call or 2,000,000 per detailed call, with 32,000 bytes reserved for stop/failure evidence. These are logical limits, excluding SQLite/index/WAL overhead and the separate product briefing cache. Existing detailed traces keep their original policy and age out normally; this update does not purge them. Freed SQLite pages can be reused without shrinking the file immediately. Basic reduces diagnostic disk/transport overhead; it does not change the context sent to voice or subscription usage for synthesis.
-
-Inspect with `bb plugin rpc inspect live-voice`, `traceSessions` (`{ "threadId": "thr_..." }` or `{}`) and `traceRead` (`{ "sessionId": "UUID", "afterId": 0 }`). Page afterId using the last returned cursor until empty. Sessions report their frozen diagnostics policy. The CLI form is:
-
-```sh
-bb plugin rpc call live-voice traceSessions --input-file /tmp/voice-thread.json --json
-bb plugin rpc call live-voice traceRead --input-file /tmp/voice-call.json --json
-```
-
-The dropped counter reports budget drops. Browser sequence gaps, truncation flags and unsaved exit batches can also indicate incomplete evidence. Browser elapsedMs is monotonic; server elapsedMs uses wall time. Server sequence numbers are plugin-global, so per-call server gaps alone do not establish loss. Detailed delivery records correlate Claude updates with updateSeq; native and Claude timings are not equivalent end-to-end measurements. Trace-save warnings are limited to once per minute per call/browser collector. Diagnostics never wait before stopping voice or trigger model calls, response generation, or custom turn detection.
-
-## Briefing setting
-
-**Cached briefing** is a toggle. On supplies a fresh prepared briefing in the initial realtime context; off supplies no plugin background. Missing or stale briefings leave the entire call retrieval-only. Changes apply to new calls, without a reload. The former `backgroundMode` dropdown and its deferred comparison modes are retired. Existing briefing data and diagnostics remain intact; when upgrading from the dropdown, enable the toggle if you previously used cached mode.
-
-
-## Briefing controls
-
-All three RPCs take `{ "threadId": "thr_..." }` through `--input-file`:
-
-```sh
-bb plugin rpc call live-voice briefingStatus --input-file /tmp/voice-thread.json --json
-bb plugin rpc call live-voice prepareBriefing --input-file /tmp/voice-thread.json --json
-bb plugin rpc call live-voice forgetBriefing --input-file /tmp/voice-thread.json --json
-```
-
-`briefingStatus` returns `missing`, `busy`, `preparing`, `ready`, `stale`, or `error`; only ready responses include the JSON text. `prepareBriefing` watches the thread and queues preparation when idle without waiting for synthesis. It can explicitly prepare a cache even while background is off. `forgetBriefing` deletes the cache and watch. Turning Cached briefing off cancels queued/in-progress automatic preparation; existing calls keep their startup policy. `context.startup` records attempted startup cache metadata (and the exact reference only in detailed mode). The `start` RPC returns `briefing: ready | lookup` in cached mode. Turn Cached briefing off to restore the baseline for new calls.
+See [development](docs/development.md), [maintainer context](docs/maintainers.md), and [release status](docs/release.md). Distributed under the [MIT license](LICENSE), preserving the existing attribution.
