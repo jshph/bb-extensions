@@ -26,7 +26,7 @@ describe('voice sessions', () => {
     const connect = vi.fn(async () => 'answer');
     await createPlugin(connect)(bb);
     try {
-      expect(await harness.behavior.callRpc('start', input)).toEqual({ sdp: 'answer', adapter: 'delegated' });
+      expect(await harness.behavior.callRpc('start', input)).toEqual({ sdp: 'answer', adapter: 'delegated', diagnostics: 'basic' });
       await expect(harness.behavior.callRpc('start', { ...input, sessionId: 'a77bc81a-9777-466c-b231-e04784794cf7' })).rejects.toThrow('already');
       await harness.behavior.callRpc('stop', { sessionId });
       await harness.behavior.callRpc('start', input);
