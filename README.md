@@ -45,9 +45,11 @@ Cached briefing defaults to off. Settings apply to new calls. See [thread backgr
 
 ## Install and develop
 
-The source repository remains private while the upstream dependencies and release preparation are reviewed. From an authorized local checkout:
+Tandem is an experimental source preview. The native Codex path still requires the BB support described above; public source availability does not establish stock BB compatibility. To build from source:
 
 ```sh
+git clone https://github.com/jshph/bb-plugin-live-voice.git
+cd bb-plugin-live-voice
 npm ci --include=dev
 npm run check
 npm test

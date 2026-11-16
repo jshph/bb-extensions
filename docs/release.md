@@ -1,6 +1,6 @@
 # Tandem release status
 
-Tandem 0.3.3 is prepared as an experimental source preview. This document does not announce publication, change repository visibility, or claim compatibility with stock BB.
+Tandem 0.3.3 is an experimental source preview distributed under the MIT license, preserving BB’s existing copyright and attribution. Source availability does not establish compatibility with stock BB.
 
 ## Installation boundary
 
@@ -10,7 +10,7 @@ Tandem 0.3.3 is prepared as an experimental source preview. This document does n
 - New-thread voice requires input-free thread initialization, introduced with protocol 271. Older BB versions reject that creation request.
 - Claude transport requires an official Codex CLI signed in with ChatGPT on the BB server; Codex 0.160.1 has been exercised. Its experimental protocol may change.
 
-These protocol numbers identify customized BB changes, not a stock-release compatibility guarantee. The supporting core changes are a separate dependency; this plugin source alone does not install them. See [maintainer context](maintainers.md) for the independent upstream drafts and the difference between the proposed API and the deployed custom build.
+These protocol numbers identify customized BB changes, not a stock-release compatibility guarantee. The supporting core changes are a separate dependency; this plugin source alone does not install them. See [maintainer context](maintainers.md) for the independent upstream PRs and the difference between the proposed API and the deployed custom build.
 
 ## Naming and upgrades
 
@@ -26,7 +26,7 @@ Cached synthesis uses subscription allowance. Basic diagnostics omit conversatio
 
 ## Public distribution
 
-A source snapshot can be shared as a developer preview with the dependency limits above. Before making the existing Git repository public, review its history: earlier revisions include maintainer-specific workspace paths and thread references removed from the current source. A clean source archive avoids shipping that history. Publication of the repository, npm package, marketplace entry or customized BB core is a separate action.
+The GitHub repository is distributed as a developer preview with the dependency limits above. The pre-publication review checked all 127 historical source blobs for common credential patterns and sensitive file names and found no matches. Earlier documentation contains development workspace paths and opaque BB thread references; those are absent from the current documentation but remain in Git history. This bounded check is not a comprehensive security audit. The npm package, marketplace entry and customized BB core are separate distribution decisions.
 
 Preserve the existing MIT license and attribution. There has been no trademark or name-availability review for Tandem.
 
