@@ -30,18 +30,24 @@ flowchart TB
 The voice conversation still uses Codex, but Claude does the coding. Tandem briefly starts a separate Codex app-server to connect the audio, then closes that setup process. That temporary thread does no coding. During the call, Tandem receives requests from the voice model and sends them to the user's existing Claude thread:
 
 ```mermaid
-flowchart TB
-  Voice["Codex voice"]
-  Tandem["Tandem plugin"]
-  Thread["Existing BB Claude thread"]
-  SDK["BB Claude provider<br/>Claude Agent SDK"]
-  Work["Claude coding work<br/>Files, commands and tests"]
-  Voice -->|Delegate spoken request| Tandem
-  Tandem -->|Send task or follow-up| Thread
-  Thread -->|Run with normal permissions| SDK
-  SDK -->|Execute task| Work
-  Work -->|Return answer through BB| Tandem
-  Tandem -->|Return answer for speech| Voice
+sequenceDiagram
+  participant Voice as Codex voice
+  participant Tandem as Tandem
+  participant Thread as BB Claude thread
+  participant Agent as Claude Agent SDK
+
+  Voice->>Tandem: Delegate spoken task
+  Tandem->>Thread: Send task to this thread
+  Thread->>Agent: Start coding work
+  Agent->>Agent: Edit files and run tests
+  Note over Thread,Agent: Normal BB permissions apply
+  Agent-->>Thread: Findings and answer
+  Thread-->>Tandem: Stream agent response
+  Tandem-->>Voice: Supply answer for speech
+
+  Voice->>Tandem: Spoken correction
+  Tandem->>Thread: Steer this call's task
+  Thread->>Agent: Continue with correction
 ```
 
 The distinction is who connects voice requests to coding work: Codex handles its own native handoff, while Tandem connects Codex voice to Claude through existing BB thread APIs. This PR supplies the missing access to the existing Codex connection. Claude's coding integration already uses BB's public APIs and stays in the plugin.
