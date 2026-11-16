@@ -1,3 +1,4 @@
+import { voiceSchema, type Voice } from './voices';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { z } from 'zod';
@@ -84,7 +85,8 @@ export function requireSubscriptionAccount(value: unknown): void {
   if (!result.success || result.data.account?.type !== 'chatgpt') throw new Error('Live Voice requires Codex signed in with ChatGPT on the BB server. Run codex login there; API keys are not supported.');
 }
 
-export async function createSubscriptionCall(sdp: string, command = 'codex', startupBriefing?: string | null): Promise<string> {
+export async function createSubscriptionCall(sdp: string, command = 'codex', startupBriefing?: string | null, voice?: Voice): Promise<string> {
+  if (voice !== undefined) voiceSchema.parse(voice);
   let nativeThreadId: string | undefined;
   let resolveSdp!: (value: string) => void;
   let rejectSdp!: (error: Error) => void;
@@ -104,7 +106,7 @@ export async function createSubscriptionCall(sdp: string, command = 'codex', sta
     nativeThreadId = thread.thread.id;
     const [, result] = await Promise.all([
       connection.request('thread/realtime/start', {
-        threadId: nativeThreadId, transport: { type: 'webrtc', sdp }, version: 'v3', outputModality: 'audio', includeStartupContext: false,
+        threadId: nativeThreadId, ...(voice ? { voice } : {}), transport: { type: 'webrtc', sdp }, version: 'v3', outputModality: 'audio', includeStartupContext: false,
         clientManagedHandoffs: true, initialItems: [{ role: 'developer', text: voiceInstructions }, ...(startupBriefing === undefined ? [] : [{ role: 'developer', text: startupBriefing ?? 'No thread briefing is supplied for this call. The backing agent has the history; retrieve missing facts through it. Do not claim to have read or remember background that was not supplied. Respond to the user’s actual words.' }])],
       }), answer,
     ]);

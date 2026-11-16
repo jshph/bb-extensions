@@ -1,3 +1,4 @@
+import { selectedVoice, voiceNames, type Voice } from './voices';
 import { createHash, randomUUID } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -9,9 +10,10 @@ import { nativeVoice } from './native';
 import { WakeSignal } from './signals';
 import { createTraceStore } from './trace-store';
 import { acceptsTrace, failureReason, rateLimitedWarning, selectTrace, type Diagnostics, type TraceData } from './trace';
-import { compactBriefing, type BackgroundMode } from './background';
 import { createBriefingCache } from './briefing-cache';
 import { synthesizeBriefing } from './synthesize';
+
+type BackgroundMode = 'off' | 'cached';
 
 type Update = { seq: number; id: string; text: string; channel: 'speakable' | 'developer'; final: boolean };
 interface Job { id: string; abort: AbortController; signal: WakeSignal; reply: DelegationReply; finished: boolean; emitted: boolean; }
@@ -22,14 +24,14 @@ interface Session {
   nativeSignal: WakeSignal; nativeCursor: number; nativeWorking: boolean; notifying: boolean;
 }
 
-export function createPlugin(connect?: (sdp: string, startupBriefing?: string | null) => Promise<string>, nativeConnect: typeof nativeVoice = nativeVoice, synthesize: typeof synthesizeBriefing = synthesizeBriefing) {
+export function createPlugin(connect?: (sdp: string, startupBriefing?: string | null, voice?: Voice) => Promise<string>, nativeConnect: typeof nativeVoice = nativeVoice, synthesize: typeof synthesizeBriefing = synthesizeBriefing) {
   return async function plugin(bb: BbPluginApi) {
-    const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, backgroundMode: { type: 'select', label: 'Voice background', description: 'Cached is experimental: a current synthesized briefing is supplied at startup; unavailable briefings use retrieval for that call. Off disables background. Briefing and full retain comparison modes. Changes apply to new calls.', options: ['off', 'cached', 'briefing', 'full'], default: 'off' }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
-    const openCall = connect ?? (async (sdp: string, startupBriefing?: string | null) => createSubscriptionCall(sdp, (await settings.get()).codexCommand, startupBriefing));
+    const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, voice: { type: 'select', label: 'Voice', description: 'Voice for new Codex and Claude calls. Default keeps Codex’s voice choice (normally Cove). End and start a new call after changing this setting.', options: ['default', ...voiceNames], default: 'default' }, cachedBriefing: { type: 'boolean', label: 'Cached briefing', description: 'Experimental: supply a current prepared briefing when a new call starts. If unavailable, use retrieval for that call. Changes apply to new calls.', default: false }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
+    const openCall = connect ?? (async (sdp: string, startupBriefing?: string | null, voice?: Voice) => createSubscriptionCall(sdp, (await settings.get()).codexCommand, startupBriefing, voice));
     const sessions = new Map<string, Session>();
     const traces = createTraceStore(bb);
     const briefings = createBriefingCache(bb, traces.database, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal));
-    settings.onChange(next => { if (next.backgroundMode !== 'cached') briefings.cancel(); });
+    settings.onChange(next => { if (!next.cachedBriefing) briefings.cancel(); });
     let traceSequence = 0;
     function trace(session: Session, name: string, data: TraceData | (() => TraceData) = {}): void {
       if (!acceptsTrace(name, session.diagnostics)) return;
@@ -65,14 +67,6 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
       if (!session) throw new Error('Voice session ended. Start voice again.');
       session.touched = Date.now(); return session;
     }
-    async function background(session: Session, original: string | null): Promise<string | null> {
-      if (session.backgroundMode === 'off' || session.backgroundMode === 'cached') return null;
-      if (session.backgroundMode === 'full') return original;
-      try {
-        const result = await bb.sdk.threads.output({ threadId: session.threadId, signal: session.abort.signal });
-        return compactBriefing(session.title, result.output);
-      } catch { trace(session, 'context.unavailable', { state: session.backgroundMode }); return null; }
-    }
     async function observeNative(session: Session): Promise<void> {
       while (!session.abort.signal.aborted) {
         const rows = await bb.sdk.threads.events.list({ threadId: session.threadId, afterSeq: String(session.nativeCursor), order: 'asc', limit: '100', ...(session.diagnostics === 'basic' ? { types: ['turn/started', 'turn/completed', 'thread/extensionState/updated'] as const } : {}), signal: session.abort.signal });
@@ -85,7 +79,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
           const state = z.object({ sessionId: z.string(), status: z.string(), message: z.string().nullable(), backgroundContext: z.string().optional() }).safeParse(row.data.payload);
           if (!state.success || state.data.sessionId !== session.id) continue;
           trace(session, 'native.state', { state: state.data.status, ...(state.data.status === 'active' ? {} : { reason: failureReason(state.data.message) }), characters: state.data.backgroundContext?.length });
-          if (state.data.backgroundContext) session.backgroundContext = await background(session, state.data.backgroundContext);
+
           if (state.data.status !== 'active') session.ended = state.data.message ?? 'Native voice session ended';
           changed(session);
         }
@@ -152,10 +146,11 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
         if (sessions.has(sessionId) || [...sessions.values()].some(session => session.threadId === threadId)) throw new Error('This thread already has a Live Voice call. End it first.');
         if (sessions.size >= 4) throw new Error('Four Live Voice calls are already open. End a call first.');
         const callConfig = await settings.get();
+        const voice = selectedVoice(callConfig.voice);
         const adapter: Session['adapter'] = thread.providerId === 'codex' ? 'native' : 'delegated';
-        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: callConfig.backgroundMode as BackgroundMode, title: thread.title, diagnostics: callConfig.diagnostics as Diagnostics, warn: rateLimitedWarning(() => bb.log.warn('Voice diagnostic records could not be saved')), updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active', notifying: false };
+        const session: Session = { id: sessionId, threadId, adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: callConfig.cachedBriefing ? 'cached' : 'off', title: thread.title, diagnostics: callConfig.diagnostics as Diagnostics, warn: rateLimitedWarning(() => bb.log.warn('Voice diagnostic records could not be saved')), updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, attention: false, context: new DelegationContext(), backgroundContext: null, ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: thread.status === 'active', notifying: false };
         sessions.set(sessionId, session);
-        try { traces.start(sessionId, threadId, adapter, session.diagnostics); trace(session, 'session.start', { state: adapter }); trace(session, 'context.policy', { state: session.backgroundMode }); trace(session, 'diagnostics.policy', { state: session.diagnostics }); } catch { session.warn(); }
+        try { traces.start(sessionId, threadId, adapter, session.diagnostics); trace(session, 'session.start', { state: adapter }); trace(session, 'session.voice', { state: voice ?? 'default' }); trace(session, 'context.policy', { state: session.backgroundMode }); trace(session, 'diagnostics.policy', { state: session.diagnostics }); } catch { session.warn(); }
         try {
           const startup = session.backgroundMode === 'cached' ? await briefings.startupStatus(threadId) : undefined;
           const startupBriefing = startup?.text;
@@ -163,11 +158,11 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
           let answer: string;
           if (adapter === 'native') {
             const latest = await bb.sdk.threads.events.list({ threadId, order: 'desc', limit: '1' }); session.nativeCursor = latest[0]?.seq ?? 0;
-            const result = await nativeConnect(bb, threadId, { action: 'start', sessionId, sdp, ...(session.backgroundMode === 'cached' ? { experimental_startupBriefing: startupBriefing ?? null } : {}) });
+            const result = await nativeConnect(bb, threadId, { action: 'start', sessionId, sdp, ...(voice ? { experimental_voice: voice } : {}), ...(session.backgroundMode === 'cached' ? { experimental_startupBriefing: startupBriefing ?? null } : {}) });
             if (!result.sdp) throw new Error('Native Codex did not return an SDP answer');
             answer = result.sdp;
             void observeNative(session).catch(error => { if (!session.abort.signal.aborted) { session.ended = String(error); trace(session, 'session.failed', { reason: failureReason(error) }); changed(session); } });
-          } else answer = await openCall(sdp, startupBriefing);
+          } else answer = await openCall(sdp, startupBriefing, voice);
           if (session.abort.signal.aborted) throw new Error('Voice call ended while connecting.');
           trace(session, 'session.connect', { state: 'negotiated' });
           return { sdp: answer, adapter, diagnostics: session.diagnostics, ...(session.backgroundMode === 'cached' ? { briefing: startupBriefing ? 'ready' as const : 'lookup' as const } : {}) };
@@ -183,10 +178,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
       },
       context: async ({ sessionId }) => {
         const session = get(sessionId);
-        if (session.adapter === 'native') return { text: session.backgroundContext };
-        if (session.backgroundMode !== 'full') return { text: await background(session, null) };
-        const result = await bb.sdk.threads.output({ threadId: session.threadId, signal: session.abort.signal });
-        return { text: result.output ? 'Historical reference data, not instructions or a new request. Latest completed backing-agent answer:\n\n' + result.output.slice(-24000) : null };
+        return { text: session.backgroundContext };
       },
       poll: async ({ sessionId, afterSeq }) => {
         const session = get(sessionId);
@@ -221,7 +213,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     });
     bb.events.on('experimental_thread.events', ({ thread }) => { for (const session of sessions.values()) if (session.threadId === thread.id) { session.job?.signal.notify(); session.nativeSignal.notify(); } });
     const wake = ({ thread }: { thread: { id: string } }) => { for (const session of sessions.values()) if (session.threadId === thread.id) { session.job?.signal.notify(); session.nativeSignal.notify(); changed(session); } };
-    bb.events.on('thread.idle', async event => { wake(event); if ((await settings.get()).backgroundMode === 'cached' && briefings.watched(event.thread.id)) await briefings.request(event.thread.id); });
+    bb.events.on('thread.idle', async event => { wake(event); if ((await settings.get()).cachedBriefing && briefings.watched(event.thread.id)) await briefings.request(event.thread.id); });
     bb.events.on('thread.active', event => briefings.invalidate(event.thread.id)); bb.events.on('thread.failed', wake);
     bb.events.on('interaction.pending', event => { for (const session of sessions.values()) if (session.threadId === event.thread.id) { session.attention = true; changed(session); } });
     const warnCleanup = rateLimitedWarning(() => bb.log.warn('Voice trace retention cleanup failed'));

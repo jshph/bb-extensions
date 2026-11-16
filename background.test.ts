@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
-import { compactBriefing, type BackgroundMode } from './background';
+import { compactBriefing } from './background';
 import { createPlugin } from './server';
 
 it('bounds the latest-answer briefing and excludes fenced implementation blocks', () => {
@@ -13,12 +13,12 @@ it('bounds the latest-answer briefing and excludes fenced implementation blocks'
   expect(compactBriefing('Test', '```sh\nonly code\n```')).toBeNull();
 });
 
-for (const providerId of ['codex', 'claude']) for (const mode of ['off', 'briefing', 'full'] as BackgroundMode[]) {
-  it(`${providerId} freezes ${mode} policy for the call and applies it to both context delivery paths`, async () => {
+for (const providerId of ['codex', 'claude']) for (const mode of [false, true]) {
+  it(`${providerId} freezes cachedBriefing=${mode} policy for the call and applies it to both context delivery paths`, async () => {
     type Row = Awaited<ReturnType<BbPluginApi['sdk']['threads']['events']['list']>>[number];
     let rows: Row[] = [];
     const sessionId = 'a77bc81a-9777-466c-b231-e04784794cf6';
-    const { bb, harness } = createFakePluginHost({ pluginId: 'live-voice', settings: { backgroundMode: mode }, sdk: { threads: {
+    const { bb, harness } = createFakePluginHost({ pluginId: 'live-voice', settings: { cachedBriefing: mode }, sdk: { threads: {
       get: async () => makeThreadResponse({ id: 'thread', title: 'Voice test', providerId, status: 'idle' }),
       events: { list: async args => rows.filter(row => row.seq > Number(args.afterSeq ?? 0)) },
       output: async () => ({ output: 'Verified compact result.' }),
@@ -29,21 +29,14 @@ for (const providerId of ['codex', 'claude']) for (const mode of ['off', 'briefi
     })(bb);
     try {
       await harness.behavior.callRpc('start', { sessionId, threadId: 'thread', sdp: 'offer' });
-      await harness.behavior.setSettings({ backgroundMode: mode === 'off' ? 'full' : 'off' });
+      await harness.behavior.setSettings({ cachedBriefing: !mode });
       if (providerId === 'codex') await new Promise(resolve => setTimeout(resolve, 10));
       const context = await harness.behavior.callRpc('context', { sessionId }) as { text: string | null };
       const poll = await harness.behavior.callRpc('poll', { sessionId }) as { backgroundContext: string | null };
-      if (mode === 'off') {
-        expect(context.text).toBeNull(); expect(poll.backgroundContext).toBeNull();
-        expect(harness.inspection.sdk.callsTo('threads.output')).toHaveLength(0);
-      } else if (mode === 'briefing') {
-        expect(context.text).toContain('Verified compact result.');
-        expect(context.text).not.toContain('RAW HISTORICAL TOOL CONTEXT');
-        if (providerId === 'codex') expect(poll.backgroundContext).toBe(context.text);
-      } else if (providerId === 'codex') expect(context.text).toBe('RAW HISTORICAL TOOL CONTEXT');
-      else expect(context.text).toContain('Verified compact result.');
+      expect(context.text).toBeNull(); expect(poll.backgroundContext).toBeNull();
+      expect(harness.inspection.sdk.callsTo('threads.output')).toHaveLength(0);
       const trace = await harness.behavior.callRpc('traceRead', { sessionId });
-      expect(trace).toEqual(expect.arrayContaining([expect.objectContaining({ entry: expect.objectContaining({ name: 'context.policy', data: { state: mode } }) })]));
+      expect(trace).toEqual(expect.arrayContaining([expect.objectContaining({ entry: expect.objectContaining({ name: 'context.policy', data: { state: mode ? 'cached' : 'off' } }) })]));
     } finally { await harness.lifecycle.dispose(); }
   });
 }

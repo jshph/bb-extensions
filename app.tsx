@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { definePluginApp, useComposer, useRpc, useRealtime } from '@get-bb/plugin-sdk/app';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { definePluginApp, experimental_usePluginId, useBbNavigate, useComposer, useRpc, useRealtime, useSdk } from '@get-bb/plugin-sdk/app';
 import { z } from 'zod';
 import type { rpcContract } from './contract';
+import { createPortal } from 'react-dom';
+import { callAnchors, callUi } from './call-ui';
+import { observePlayback } from './playback';
 import { VoiceClient } from './voice-client';
 import { SpokenConversation } from './conversation';
 import { BrowserTrace } from './trace';
+import { createVoiceThread, supportsVoice, voiceCalls, voiceThreadRequest, type VoiceCall, type VoiceThread } from './voice-launch';
+import './waveform.css';
 
 const eventSchema = z.object({
   type: z.string(),
@@ -13,20 +18,19 @@ const eventSchema = z.object({
   error: z.object({ message: z.string() }).optional(),
 });
 
-function Waveform() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" className="size-5" aria-hidden="true"><path d="M4 10v4m5-9v14m5-11v8m5-6v4" /></svg>;
+function Waveform({ state = 'idle' }: { state?: 'idle' | 'connecting' | 'listening' | 'speaking' | 'muted' }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" className="live-voice-waveform size-5" data-voice-state={state} aria-hidden="true"><path d="M4 10v4" /><path d="M9 5v14" /><path d="M14 8v8" /><path d="M19 10v4" /></svg>;
 }
 
-function Voice({ threadId }: { threadId: string }) {
+function Voice({ threadId, signal }: { threadId: string; signal: AbortSignal }) {
   const rpc = useRpc<typeof rpcContract>();
   const audio = useRef<HTMLAudioElement>(null);
   const client = useRef<VoiceClient | null>(null);
   const [status, setStatus] = useState<'closed' | 'connecting' | 'active'>('closed');
   const [message, setMessage] = useState<string | null>(null);
-  const [backend, setBackend] = useState('ready');
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
-  const [briefing, setBriefing] = useState<'ready' | 'lookup' | null>(null);
+  const [speaking, setSpeaking] = useState(false);
   const delivered = useRef(new Set<string>());
   const conversation = useRef(new SpokenConversation());
   const submissions = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; send(): void }>());
@@ -42,13 +46,14 @@ function Voice({ threadId }: { threadId: string }) {
   useEffect(() => {
     const stop = () => { client.current?.stop(); client.current = null; };
     window.addEventListener('pagehide', stop);
-    return () => { window.removeEventListener('pagehide', stop); stop(); };
-  }, [threadId]);
+    signal.addEventListener('abort', stop);
+    if (signal.aborted) stop();
+    return () => { window.removeEventListener('pagehide', stop); signal.removeEventListener('abort', stop); stop(); };
+  }, [threadId, signal]);
 
   const apply = (result: Awaited<ReturnType<typeof rpc.call<'poll'>>>, current: VoiceClient) => {
     if (client.current !== current) return;
     if (result.ended) { current.stop(result.ended); return; }
-    setBackend(result.state);
     if (result.backgroundContext) current.addBackgroundContext(result.backgroundContext);
     for (const update of result.updates) {
       if (update.seq <= afterSeq.current) continue;
@@ -75,13 +80,14 @@ function Voice({ threadId }: { threadId: string }) {
   useEffect(() => { if (status === 'active') synchronize.current(); }, [status]);
 
   function start() {
+    if (signal.aborted) return;
     if (!audio.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
       setMessage('Voice needs microphone access in a supported browser over HTTPS.');
       return;
     }
     delivered.current.clear(); conversation.current = new SpokenConversation(); contextRequested.current = false; afterSeq.current = 0; replyText.current.clear();
-    setMuted(false); setBlocked(false); setBriefing(null); setBackend('ready');
+    setMuted(false); setBlocked(false);
     let traceReady!: () => void;
     const ready = new Promise<void>(resolve => { traceReady = resolve; });
     const diagnostic = new BrowserTrace(async entries => {
@@ -102,7 +108,7 @@ function Voice({ threadId }: { threadId: string }) {
       },
       audioBlocked: () => setBlocked(true),
       request: async command => {
-        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; setBriefing(result.briefing ?? null); diagnostic.configure(result.diagnostics); return result; } finally { traceReady(); } }
+        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; diagnostic.configure(result.diagnostics); return result; } finally { traceReady(); } }
         if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId }); }
         else apply(await rpc.call('poll', { sessionId: command.sessionId, afterSeq: afterSeq.current }), next);
         return { sdp: null };
@@ -127,7 +133,6 @@ function Voice({ threadId }: { threadId: string }) {
           const id = event.item.id;
           const text = event.item.content?.filter(part => part.type === 'input_text').map(part => part.text ?? '').join('\n').trim();
           if (!text) { next.sendResult(id, 'The delegation contained no request. Please ask again.'); return; }
-          setBackend('working');
           if (submissions.current.has(id)) return;
           const send = () => {
             const pending = submissions.current.get(id);
@@ -147,34 +152,153 @@ function Voice({ threadId }: { threadId: string }) {
     void next.start().finally(traceReady);
   }
 
-  const label = status === 'connecting' ? 'Connecting voice…' : backend === 'attention' ? 'Approve in BB' : backend === 'working' ? 'Agent working' : muted ? 'Mic muted' : briefing === 'ready' ? 'Voice connected · briefed' : briefing === 'lookup' ? 'Voice connected · context on request' : 'Voice connected';
-  return <div className="flex shrink-0 items-center gap-1 text-xs">
-    <audio ref={audio} autoPlay />
-    {status === 'closed' ? <button type="button" aria-label="Start live voice" title={message ?? 'Start live voice · Codex subscription'} onClick={start} className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><Waveform /></button> : <>
-      <span role="status" className={status === 'connecting' ? 'animate-pulse' : ''} title={message ?? label}>{label}</span>
-      <button type="button" className="rounded-md px-2 py-1 hover:bg-muted" onClick={() => { client.current?.mute(!muted); setMuted(!muted); }} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}>{muted ? 'Unmute' : 'Mute'}</button>
-      {backend !== 'ready' ? <button type="button" className="rounded-md px-2 py-1 hover:bg-muted" onClick={() => { const current = client.current; if (current) void rpc.call('control', { sessionId: current.sessionId, action: 'cancelWork' }).then(() => setMessage('Cancellation requested. Completed actions are not undone.')).catch(error => setMessage(String(error))); }}>Stop agent</button> : null}
-      <button type="button" className="rounded-md px-2 py-1 hover:bg-muted" onClick={() => client.current?.stop()}>End</button>
-    </>}
-    {blocked && status === 'active' ? <button type="button" className="rounded-md px-2 py-1 hover:bg-muted" onClick={() => { void audio.current?.play().then(() => setBlocked(false)).catch(() => setMessage('Allow browser audio playback to hear the call.')); }}>Enable audio</button> : null}
-    {message ? <span role="alert" className="sr-only">{message}</span> : null}
+  useEffect(() => { start(); }, []);
+
+  useEffect(() => {
+    if (!audio.current) return;
+    return observePlayback(audio.current, setSpeaking);
+  }, []);
+  useEffect(() => {
+    if (signal.aborted) return;
+    callUi.publish({
+      status, muted, speaking, blocked, message,
+      toggleMute: () => {
+        if (signal.aborted) return;
+        client.current?.mute(!muted);
+        setMuted(!muted);
+      },
+      enableAudio: () => {
+        if (signal.aborted) return;
+        void audio.current?.play().then(() => setBlocked(false)).catch(() => setMessage('Allow browser audio playback to hear the call.'));
+      },
+      retry: start,
+    });
+  }, [status, muted, speaking, blocked, message, signal]);
+  useEffect(() => () => callUi.publish(null), []);
+  return <audio ref={audio} autoPlay />;
+}
+
+const controlClass = 'flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 hover:bg-muted';
+
+function CallControls({ compact = false }: { compact?: boolean }) {
+  const ui = useSyncExternalStore(callUi.subscribe, callUi.getSnapshot);
+  const status = ui?.status ?? 'connecting';
+  const buttonClass = compact ? controlClass.replace('size-11', 'size-9') : controlClass;
+  const waveform = status === 'active' ? ui?.speaking ? 'speaking' : ui?.muted ? 'muted' : 'listening' : status === 'connecting' ? 'connecting' : 'idle';
+  const label = status === 'connecting' ? 'Connecting voice…' : status === 'closed' ? 'Voice disconnected' : 'Voice connected';
+  return <div className="relative flex shrink-0 items-center gap-1">
+    <span role="status" aria-label={label} title={ui?.muted ? `${label} · Microphone muted` : label} className={`live-voice-trigger ${buttonClass.replace(' hover:bg-muted', '')} ${status === 'active' && (!ui?.muted || ui.speaking) ? 'text-primary' : 'text-muted-foreground'}`} data-voice-state={waveform} data-speaking={ui?.speaking || undefined}>
+      <Waveform state={waveform} />
+    </span>
+    <div role="group" aria-label="Voice controls" className="live-voice-controls flex items-center gap-1">
+      {status === 'closed' ? <button type="button" className={buttonClass} aria-label="Reconnect voice" title="Reconnect voice" onClick={ui?.retry}><Waveform /></button> : <button type="button" className={buttonClass} aria-label={ui?.muted ? 'Unmute microphone' : 'Mute microphone'} title={ui?.muted ? 'Unmute microphone' : 'Mute microphone'} aria-pressed={ui?.muted ?? false} disabled={!ui || status !== 'active'} onClick={ui?.toggleMute}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />{ui?.muted ? <path d="m3 3 18 18" /> : null}</svg>
+      </button>}
+      <button type="button" aria-label="End call" title="End call" onClick={voiceCalls.end} className={`live-voice-end ${buttonClass.replace(' hover:bg-muted', '')} bg-destructive text-white hover:opacity-90`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-5" aria-hidden="true"><path d="M4 15v-4c4-4 12-4 16 0v4h-5v-4M9 11v4H4" /></svg>
+      </button>
+    </div>
+    {ui?.blocked ? <button type="button" className="rounded-md px-2 py-2 text-xs hover:bg-muted" onClick={ui.enableAudio}>Enable audio</button> : null}
+    {ui?.message ? <span role="alert" className="absolute bottom-full right-0 mb-16 w-64 rounded-xl border bg-background p-3 text-xs shadow-lg">{ui.message}</span> : null}
   </div>;
 }
 
 function VoiceAction() {
-  const { scope } = useComposer();
+  const composer = useComposer();
+  const { scope } = composer;
+  const sdk = useSdk();
+  const navigate = useBbNavigate();
   const rpc = useRpc<typeof rpcContract>();
+  const { call } = useSyncExternalStore(voiceCalls.subscribe, voiceCalls.getSnapshot);
   const threadId = scope.kind === 'thread' ? scope.threadId : null;
   const [available, setAvailable] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     let disposed = false;
     setAvailable(null);
     if (threadId) void rpc.call('available', { threadId }).then(result => { if (!disposed && result.available) setAvailable(threadId); }).catch(() => {});
     return () => { disposed = true; };
   }, [threadId, rpc]);
-  return threadId && available === threadId ? <Voice key={threadId} threadId={threadId} /> : null;
+  const newThread = scope.kind === 'new-thread';
+  const ownsCall = call && (threadId
+    ? (call.thread?.id ?? call.target.threadId) === threadId
+    : !call.thread && call.target.key === composer.key);
+  const anchor = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ownsCall && anchor.current) return callAnchors.observe(call.id, anchor.current);
+  }, [ownsCall, call?.id]);
+  const launch = () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
+      setMessage('Voice needs microphone access in a supported browser over HTTPS.'); return;
+    }
+    setMessage(null);
+    if (threadId) {
+      voiceCalls.request({ key: threadId, threadId, title: 'this thread', prepare: async signal => sdk.threads.get({ threadId, signal }) });
+      return;
+    }
+    try {
+      // Snapshot only picker settings. Starting voice neither reads nor submits the draft.
+      const selection = voiceThreadRequest(composer.selection);
+      voiceCalls.request({ key: composer.key, title: 'a new thread', prepare: (signal, created) => createVoiceThread(sdk.threads, selection, signal, thread => {
+        created(thread);
+        if (!signal.aborted) navigate.toThread(thread.id);
+      }) });
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+  };
+  if (ownsCall) return <div ref={anchor}><CallControls compact /></div>;
+  if (!newThread && (!threadId || available !== threadId)) return null;
+  if (newThread && !supportsVoice(composer.selection?.providerId)) return null;
+  const label = call ? 'Switch live voice to this thread' : newThread ? 'Start live voice in a new thread' : 'Start live voice';
+  return <div className="flex items-center gap-1">
+    <button type="button" aria-label={label} title={label} onClick={launch} className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><Waveform /></button>
+    {message ? <span role="alert" className="max-w-64 text-xs">{message}</span> : null}
+  </div>;
+}
+
+function CallSession({ call }: { call: VoiceCall }) {
+  const navigate = useBbNavigate();
+  const pluginId = experimental_usePluginId();
+  const { pending } = useSyncExternalStore(voiceCalls.subscribe, voiceCalls.getSnapshot);
+  const visibleAnchors = useSyncExternalStore(callAnchors.subscribe, callAnchors.getSnapshot);
+  const [thread, setThread] = useState<VoiceThread | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    void call.ready.then(result => { if (!disposed && !call.controller.signal.aborted) setThread(result); }).catch(error => {
+      if (!disposed && !call.controller.signal.aborted) setMessage(error instanceof Error ? error.message : String(error));
+    });
+    return () => { disposed = true; };
+  }, [call]);
+  const destination = thread ?? call.thread;
+  const title = destination?.title ?? destination?.titleFallback ?? (destination ? 'Voice conversation' : call.target.title);
+  const onThread = visibleAnchors.has(call.id);
+  return <>
+    {thread ? <Voice threadId={thread.id} signal={call.controller.signal} /> : null}
+    {createPortal(<div data-bb-plugin-root="" data-bb-plugin={pluginId} style={{ display: 'contents', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      {!onThread ? <section aria-label="Live voice call" className="pointer-events-auto fixed bottom-5 right-5 z-[60] flex max-w-[calc(100%-2.5rem)] items-center gap-2 rounded-full border bg-background p-1 shadow-lg" style={{ pointerEvents: 'auto', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        {destination ? <button type="button" className="max-w-40 truncate rounded-full px-3 py-2 text-xs font-medium hover:bg-muted" title="Open voice thread" onClick={() => navigate.toThread(destination.id)}>{title}</button> : null}
+        <CallControls />
+      </section> : null}
+      {!thread && message ? <div role="alert" className="pointer-events-auto fixed bottom-20 right-5 z-[60] max-w-80 rounded-xl border bg-background p-3 text-xs shadow-lg">{message}</div> : null}
+      {pending ? <div role="group" aria-label="Switch voice thread" className="pointer-events-auto fixed bottom-24 right-5 z-[60] max-w-80 rounded-xl border bg-background p-3 text-xs shadow-lg">
+        <p>End this call and start voice in {pending.title}? Agent work will continue.</p>
+        <button type="button" className="rounded-md px-2 py-2 hover:bg-muted" onClick={voiceCalls.switchCall}>Switch call</button>
+        <button type="button" className="rounded-md px-2 py-2 hover:bg-muted" onClick={voiceCalls.dismissSwitch}>Keep this call</button>
+      </div> : null}
+    </div>, document.body)}
+  </>;
+}
+
+function VoiceOverlay() {
+  const { call } = useSyncExternalStore(voiceCalls.subscribe, voiceCalls.getSnapshot);
+  useEffect(() => {
+    window.addEventListener('pagehide', voiceCalls.end);
+    return () => { window.removeEventListener('pagehide', voiceCalls.end); voiceCalls.end(); };
+  }, []);
+  return call ? <CallSession key={call.id} call={call} /> : null;
 }
 
 export default definePluginApp(app => {
-  app.composer.customize({ id: 'live-voice', scopes: ['thread'], actions: [{ id: 'live-voice', component: VoiceAction }] });
+  app.slots.experimental_appOverlay({ id: 'live-voice-call', component: VoiceOverlay });
+  app.composer.customize({ id: 'live-voice', scopes: ['thread', 'new-thread'], actions: [{ id: 'live-voice', component: VoiceAction }] });
 });

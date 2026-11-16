@@ -2,7 +2,7 @@ Talk with the coding agent in your BB thread, using a shared voice interface for
 
 ## What you get
 
-Start from the waveform beside dictation. Speak naturally, mute your microphone, end the call, or explicitly stop the backing agent. Coding work can continue after voice ends. Tool approvals remain in BB.
+Start from the waveform beside dictation. Speak naturally, mute your microphone, or hang up. Click the active composer waveform to reveal controls; a floating dial follows you off-thread. Cancel agent work through BB’s thread controls. Coding work can continue after voice ends. Tool approvals remain in BB.
 
 Codex uses its existing native realtime connection. Claude receives incremental conversation context and streams backing-agent responses through an event-driven adapter. Delegation instructions stay out of the visible user message.
 

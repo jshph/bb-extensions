@@ -16,7 +16,7 @@ function fixture(providerId = 'claude', cached = false) {
   add('client/turn/requested', { input: [{ type: 'text', text: 'Keep continuity' }, { type: 'text', text: 'hidden wrapper', visibility: 'agent-only' }] }, { kind: 'thread' });
   add('item/completed', { item: { id: 'a', type: 'agentMessage', text: 'I will check the build' } });
   add('item/completed', { item: { id: 't', type: 'commandExecution', command: 'build', aggregatedOutput: 'Build passed', exitCode: 0 } });
-  const host = createFakePluginHost({ pluginId: 'live-voice', settings: { backgroundMode: cached ? 'cached' : 'off' }, sdk: { threads: {
+  const host = createFakePluginHost({ pluginId: 'live-voice', settings: { cachedBriefing: cached }, sdk: { threads: {
     get: async () => makeThreadResponse({ id: 'thread', providerId, status }),
     events: { list: async args => {
       let result = rows.filter(row => (!args.types || args.types.includes(row.type)) && row.seq > Number(args.afterSeq ?? 0));
@@ -108,7 +108,7 @@ for (const providerId of ['codex', 'claude']) it(`${providerId} supplies a brief
     if (providerId === 'codex') {
       expect(commands.filter(command => command.action === 'start')).toMatchObject([{ experimental_startupBriefing: null }, { experimental_startupBriefing: startupReference(summary) }]);
       expect(connect).not.toHaveBeenCalled();
-    } else expect(connect.mock.calls).toEqual([['offer', null], ['offer', startupReference(summary)]]);
+    } else expect(connect.mock.calls).toEqual([['offer', null, undefined], ['offer', startupReference(summary), undefined]]);
     expect(f.harness.inspection.sdk.callsTo('threads.send')).toHaveLength(0);
   } finally { await f.harness.lifecycle.dispose(); }
 });
@@ -120,7 +120,7 @@ it('switching off aborts preparation and prevents idle events from starting new 
   try {
     await f.harness.behavior.callRpc('prepareBriefing', { threadId: 'thread' });
     await vi.waitFor(() => expect(signal).toBeDefined());
-    await f.harness.behavior.setSettings({ backgroundMode: 'off' });
+    await f.harness.behavior.setSettings({ cachedBriefing: false });
     expect(signal!.aborted).toBe(true);
     await f.harness.behavior.emitThreadEvent('thread.idle', { thread: makeThreadResponse({ id: 'thread', status: 'idle' }), lastAssistantText: null });
     expect(synthesize).toHaveBeenCalledOnce();
