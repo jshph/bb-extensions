@@ -32,7 +32,7 @@ Preserve the existing MIT license and attribution. There has been no trademark o
 
 ## Changes proposed upstream
 
-- Native voice on an existing Codex thread: [PR #7621](https://github.com/get-bb/bb/pull/7621). The draft exposes bounded startup context, voice selection and handoff instructions as caller configuration; it contains no Tandem prompts, briefing cache or built-in browser UI.
+- Native voice on an existing Codex thread: [PR #7621](https://github.com/get-bb/bb/pull/7621). The PR exposes bounded startup context, voice selection and handoff instructions as caller configuration; it contains no Tandem prompts, briefing cache or built-in browser UI.
 - Provider initialization before a first coding task: [PR #7620](https://github.com/get-bb/bb/pull/7620), tracking Tandem’s [issue #7619](https://github.com/get-bb/bb/issues/7619). This is related to Conductor’s pending-thread proposal but deliberately initializes the provider for an explicit voice-first action.
 
-These are draft contributions for review, not merged features or a supported BB release. Both are based independently on upstream protocol 265 and propose 266; their final protocol numbers must be coordinated if both land. The current custom installation’s protocol 271 is a separate deployment history, not a requirement to copy into upstream.
+These contributions are open and ready for maintainer review; they are not merged features or a supported BB release. Both are based independently on upstream protocol 265 and propose 266; their final protocol numbers must be coordinated if both land. The current custom installation’s protocol 271 is a separate deployment history, not a requirement to copy into upstream.

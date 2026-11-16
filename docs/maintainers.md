@@ -8,6 +8,48 @@ The reusable part of the experience is the conversation around the coding task: 
 
 Keeping Tandem separate lets that behavior evolve without making BB core own its prompts, briefing strategy or UI. It also makes the Claude use case explicit: the voice model and the coding agent do not have to be the same service. This is an ownership and release choice. The same boundaries could support a BB-maintained voice frontend; a plugin is not required merely to offer settings.
 
+## How the pieces fit together
+
+Tandem uses Codex subscription voice for both coding providers. BB still owns the coding threads and their permissions. The new operation in this PR supplies access to the native Codex connection; the Claude path uses existing BB thread APIs.
+
+```mermaid
+flowchart TB
+  User["User: microphone and speaker"] <--> Browser["Tandem in the browser<br/>Audio, controls and call state"]
+  Browser <-->|"Live audio and voice events"| Voice["Codex realtime voice<br/>ChatGPT subscription"]
+
+  subgraph CodexPath["Coding in an existing Codex thread"]
+    API["NEW IN THIS PR<br/>BB thread voice API<br/>SDK and CLI"]
+    Connection["Existing Codex provider connection<br/>Same backing thread"]
+    Coding["Codex coding agent"]
+    CodexTools["Coding actions<br/>Read and edit files<br/>Run commands and tests"]
+    API --> Connection
+    Connection <--> Coding
+    Coding <-->|"Existing tools and permissions"| CodexTools
+  end
+  Browser -->|"Start, keep alive, stop<br/>Caller-owned startup settings"| API
+  Connection -->|"Negotiate native voice"| Voice
+  Voice <-->|"Native coding handoffs and answers"| Coding
+
+  subgraph ClaudePath["Coding in an existing Claude thread"]
+    Coordinator["Tandem server<br/>Voice requests, follow-ups and results"]
+    Setup["Temporary Codex connection<br/>Audio setup only; then detached"]
+    Thread["Existing BB Claude thread<br/>Conversation, task state and permissions"]
+    Claude["Claude Code coding agent"]
+    ClaudeTools["Coding actions<br/>Read and edit files<br/>Run commands and tests"]
+    Events["BB thread events<br/>Partial answers and task completion"]
+    Coordinator --> Setup
+    Coordinator -->|"Start a task or steer voice-owned work<br/>Existing BB thread APIs"| Thread
+    Thread --> Claude
+    Claude <-->|"Existing tools and permissions"| ClaudeTools
+    Claude -->|"Agent answers"| Events
+    Events -->|"Stream findings and final answer"| Coordinator
+  end
+  Browser <-->|"Spoken requests and corrections<br/>Coding results returned to voice"| Coordinator
+  Setup -->|"Negotiate subscription voice"| Voice
+```
+
+The diagram shows logical responsibilities, not every network hop. Both paths use Codex’s audio capability; the Claude path has its own temporary audio-setup connection and does not reuse a Codex coding thread. Native Codex handoffs remain on the original connection, so Tandem does not submit them again. The plugin owns prompts, selected background and conversation delivery; core owns access, connection routing and lifecycle.
+
 ## What stays in BB
 
 BB owns the backing thread’s provider process, tools, permissions, access checks and lifecycle. A plugin cannot safely reach inside the running Codex process through the existing SDK. Opening another writer for that coding thread would create coordination problems and would not inherently preserve native realtime delegation.
@@ -32,7 +74,7 @@ The transport proposal exposes `threads.experimental_voice` and the matching `bb
 
 This lets Tandem supply its own behavior and startup briefing without embedding Tandem prompts or history queries in BB. Other callers, including a future built-in frontend, can choose different initial text through the same path.
 
-The prototype comes from the native implementation in closed PR [#7576](https://github.com/get-bb/bb/pull/7576), reduced to its server/provider capability. The earlier PR bundled browser UI and context policy; this contribution does not. The voice draft is [PR #7621](https://github.com/get-bb/bb/pull/7621). The open feature discussion is [#7575](https://github.com/get-bb/bb/issues/7575). The experimental API, session ownership and Codex lifecycle extension remain explicit review points.
+The prototype comes from the native implementation in closed PR [#7576](https://github.com/get-bb/bb/pull/7576), reduced to its server/provider capability. The earlier PR bundled browser UI and context policy; this contribution does not. The voice PR is [PR #7621](https://github.com/get-bb/bb/pull/7621). The open feature discussion is [#7575](https://github.com/get-bb/bb/issues/7575). The experimental API, session ownership and Codex lifecycle extension remain explicit review points.
 
 ### Initialize a thread before its first coding task
 
