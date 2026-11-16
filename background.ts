@@ -1,4 +1,4 @@
-export type BackgroundMode = 'off' | 'briefing' | 'full';
+export type BackgroundMode = 'off' | 'briefing' | 'full' | 'cached';
 
 export function compactBriefing(title: string | null, answer: string | null): string | null {
   const prose = (answer ?? '').replace(/```[\s\S]*?(?:```|$)/g, '').trim();

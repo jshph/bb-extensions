@@ -26,6 +26,7 @@ function Voice({ threadId }: { threadId: string }) {
   const [backend, setBackend] = useState('ready');
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [briefing, setBriefing] = useState<'ready' | 'lookup' | null>(null);
   const delivered = useRef(new Set<string>());
   const conversation = useRef(new SpokenConversation());
   const submissions = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; send(): void }>());
@@ -79,7 +80,7 @@ function Voice({ threadId }: { threadId: string }) {
       return;
     }
     delivered.current.clear(); conversation.current = new SpokenConversation(); contextRequested.current = false; afterSeq.current = 0; replyText.current.clear();
-    setMuted(false); setBlocked(false); setBackend('ready');
+    setMuted(false); setBlocked(false); setBriefing(null); setBackend('ready');
     let traceReady!: () => void;
     const ready = new Promise<void>(resolve => { traceReady = resolve; });
     const diagnostic = new BrowserTrace(async entries => {
@@ -99,7 +100,7 @@ function Voice({ threadId }: { threadId: string }) {
       },
       audioBlocked: () => setBlocked(true),
       request: async command => {
-        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; diagnostic.record('adapter.selected', { state: result.adapter }); return result; } finally { traceReady(); } }
+        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; setBriefing(result.briefing ?? null); diagnostic.record('adapter.selected', { state: result.adapter }); return result; } finally { traceReady(); } }
         if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId }); }
         else apply(await rpc.call('poll', { sessionId: command.sessionId, afterSeq: afterSeq.current }), next);
         return { sdp: null };
@@ -144,7 +145,7 @@ function Voice({ threadId }: { threadId: string }) {
     void next.start().finally(traceReady);
   }
 
-  const label = status === 'connecting' ? 'Connecting voice…' : backend === 'attention' ? 'Approve in BB' : backend === 'working' ? 'Agent working' : muted ? 'Mic muted' : 'Voice connected';
+  const label = status === 'connecting' ? 'Connecting voice…' : backend === 'attention' ? 'Approve in BB' : backend === 'working' ? 'Agent working' : muted ? 'Mic muted' : briefing === 'ready' ? 'Voice connected · briefed' : briefing === 'lookup' ? 'Voice connected · context on request' : 'Voice connected';
   return <div className="flex shrink-0 items-center gap-1 text-xs">
     <audio ref={audio} autoPlay />
     {status === 'closed' ? <button type="button" aria-label="Start live voice" title={message ?? 'Start live voice · Codex subscription'} onClick={start} className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><Waveform /></button> : <>

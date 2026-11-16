@@ -25,7 +25,15 @@ The subscription transport uses experimental Codex behavior. Codex changes can r
 
 ## Context and response policy
 
-Codex retains its native bounded thread-context and handoff path. Claude receives the latest completed backing-agent answer silently after the first spoken exchange, then asks its backing thread for missing information. This does not generate a semantic summary of the entire thread.
+Version 0.3.0 adds experimental `cached` background. The plugin synthesizes a compact reference from recent user messages, root assistant answers, and completed tool results, using an isolated Codex session authenticated with your ChatGPT subscription. The JSON reference contains goals, decisions, verified findings with event pointers, and unresolved questions. It is historical evidence, not authorization to resume old work.
+
+A fresh briefing enters the initial realtime context before audio connects, for both Codex and Claude. A missing, stale, busy, or failed preparation starts retrieval-only for that entire call. Preparation never delays startup on model generation, and a result that finishes during a call is reserved for the next call. No cached-mode background is appended after connection. The backing agent remains available for focused evidence retrieval. Initial context is not a guarantee of model attention or silence.
+
+The default is `off`. Enable with `bb plugin config live-voice set backgroundMode cached`, then start a fresh call. Only voice-used or explicitly prepared threads are watched; watched threads refresh after backing turns become idle. Active threads invalidate pending/stored briefings. Synthesis uses the latest 12 user requests and 100 completed items after the last context clear, up to 60,000 source characters, clipping individual items at 6,000 characters. Earlier evidence may be absent. Compiler output is validated, includes only supplied event pointers, and is capped at 3,000 JSON characters (4,000 including framing). It can still omit or misinterpret a fact; ask the backing agent when uncertain.
+
+Briefings are private local plugin data, retained for up to 20 watched threads and seven days. A briefing is usable for 24 hours only while its thread revision matches. Synthesis consumes Codex subscription allowance, runs one job at a time, and uses a 90-second deadline with no API-key fallback. The compiler is instructed to treat source as quoted data, with shell, web, and multi-agent features disabled; observed tool execution rejects preparation. Failed preparation falls back to retrieval.
+
+Cached native Codex calls require the customized startup-briefing bridge (host daemon protocol 269); the bridge is additional to the original transport requirement. Codex delegation still uses the original provider connection. Legacy `briefing` and `full` modes retain deferred delivery for comparison.
 
 Delegated instructions and quoted context are agent-only; chat shows new spoken words or a labeled voice-model task. Instructions are sent once per call after provider acceptance, and later requests contain only new or changed spoken turns. Grouped transcripts preserve corrections, continuations, and explicit incompleteness. Exact echoes of backing answers are omitted; paraphrases are conversational reference, not independent evidence. Up to 350 ms is allowed for a user turn to finish before delegation.
 
@@ -57,7 +65,7 @@ End existing calls before upgrading, then start a new call. The source and insta
 
 Version 0.2.1 records local, bounded traces for new calls. They include browser wall-clock and monotonic elapsed timestamps, server receipt timestamps, sequence numbers, received turn/transcript/delegation events, exact background context chunks sent, context acknowledgements, context delivery gate state, playback start/block events, connection state and closure reasons. Claude traces also correlate backing updates with browser receipt and sent delegation chunks. Codex traces capture backing events observed through BB; the native app-server's outgoing delegation wire chunks are not exposed to this plugin.
 
-No raw audio, SDP, transport credentials, reasoning, or tool output is recorded. **Spoken transcripts and delivered context text are recorded**, so traces can contain private conversation/source material. They stay in the plugin database on this BB server. Retention is the latest 20 calls, seven days, and 2 MB per call; cleanup runs every ten seconds and on access. Oversized transcript/backing entries are explicitly marked truncated at 32,000 characters; sent context chunks are captured whole. The session's `dropped` count reports storage-cap drops. Missing browser sequence numbers indicate unsaved/dropped batches. A browser crash or page close can lose the last unsaved batch; tracing is best effort and never waits before stopping voice.
+No raw audio, SDP, transport credentials, reasoning, or raw tool output is recorded. Startup briefings can contain synthesized tool findings. **Spoken transcripts and delivered context text are recorded**, so traces can contain private conversation/source material. They stay in the plugin database on this BB server. Retention is the latest 20 calls, seven days, and 2 MB per call; cleanup runs every ten seconds and on access. Oversized transcript/backing entries are explicitly marked truncated at 32,000 characters; sent context chunks are captured whole. The session's `dropped` count reports storage-cap drops. Missing browser sequence numbers indicate unsaved/dropped batches. A browser crash or page close can lose the last unsaved batch; tracing is best effort and never waits before stopping voice.
 
 Inspect schemas with `bb plugin rpc inspect live-voice`. List calls and then page the selected trace:
 
@@ -70,8 +78,21 @@ The first input is `{ "threadId": "thr_..." }` (or `{}` for all calls). The seco
 
 ## Comparing background behavior
 
-Version 0.2.2 adds the `backgroundMode` setting: `off`, `briefing` (default), or `full`. The selection is frozen at call start and recorded as `context.policy` in its trace. Change it in plugin settings or with `bb plugin config live-voice set backgroundMode off`, then start a fresh call. No reload is needed for a setting change.
+The `backgroundMode` setting supports `off` (default in 0.3.0), `cached` (experimental startup synthesis), `briefing` (legacy latest-answer excerpt), or `full`. The selection is frozen at call start and recorded as `context.policy` in its trace. Change it in plugin settings or with `bb plugin config live-voice set backgroundMode off`, then start a fresh call. No reload is needed for a setting change.
 
 `off` suppresses all plugin-supplied background through both native polling and the delegated context RPC. Native session instructions and delegation remain unchanged. `briefing` supplies at most 2,000 characters of the latest completed backing-agent answer, with a thread title and explicit excerpt/omission labels; fenced code is excluded. This is an extractive briefing, not an AI-generated summary of all earlier facts or tool evidence. Missing details remain retrievable through the backing agent. `full` restores the previous native context or Claude latest-answer path for comparison.
 
 For a controlled comparison, use the same thread and opening words, keep the microphone/device unchanged, and pause for 15 seconds after the assistant's greeting. First use `off`, then repeat in a fresh call with `briefing`. Compare unprompted assistant turns and affirmations against `context.sent` and acknowledgements. Keep full-context injection out of ordinary testing until these results are understood. There is no proven guarantee that even a compact background append will remain behaviorally silent.
+
+
+## Briefing controls
+
+All three RPCs take `{ "threadId": "thr_..." }` through `--input-file`:
+
+```sh
+bb plugin rpc call live-voice briefingStatus --input-file /tmp/voice-thread.json --json
+bb plugin rpc call live-voice prepareBriefing --input-file /tmp/voice-thread.json --json
+bb plugin rpc call live-voice forgetBriefing --input-file /tmp/voice-thread.json --json
+```
+
+`briefingStatus` returns `missing`, `busy`, `preparing`, `ready`, `stale`, or `error`; only ready responses include the JSON text. `prepareBriefing` watches the thread and queues preparation when idle without waiting for synthesis. It can explicitly prepare a cache even while background is off. `forgetBriefing` deletes the cache and watch. Switching away from cached cancels queued/in-progress automatic preparation; existing calls keep their startup policy. The call status indicates “briefed” or “context on request”; `context.startup` in its trace records the exact initial reference (or a lookup fallback). The `start` RPC returns `briefing: ready | lookup` in cached mode. Set background to `off` to restore the baseline for new calls.

@@ -1,6 +1,6 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 
-export type NativeVoiceCommand = { action: 'start'; sessionId: string; sdp: string } | { action: 'stop' | 'keepAlive'; sessionId: string };
+export type NativeVoiceCommand = { action: 'start'; sessionId: string; sdp: string; experimental_startupBriefing?: string | null } | { action: 'stop' | 'keepAlive'; sessionId: string };
 type NativeThreads = { voice?: (args: { threadId: string; command: NativeVoiceCommand }) => Promise<{ sdp: string | null }> };
 
 export async function nativeVoice(bb: BbPluginApi, threadId: string, command: NativeVoiceCommand): Promise<{ sdp: string | null }> {

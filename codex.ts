@@ -9,7 +9,7 @@ export class CodexConnection {
   private next = 0;
   private pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   private closed = false;
-  constructor(private notification: (method: string, params: unknown) => void, command = 'codex') {
+  constructor(private notification: (method: string, params: unknown) => void, command = 'codex', private disconnected?: (error: Error) => void) {
     const env = { ...process.env };
     delete env.OPENAI_API_KEY;
     delete env.CODEX_API_KEY;
@@ -36,13 +36,16 @@ export class CodexConnection {
       }
     });
     const fail = () => {
+      if (this.closed) return;
       this.closed = true;
+      const error = new Error('Codex app-server disconnected. Check Codex installation and ChatGPT sign-in on the BB server.');
       lines.close();
       for (const pending of this.pending.values()) {
         clearTimeout(pending.timer);
-        pending.reject(new Error('Codex app-server disconnected. Check Codex installation and ChatGPT sign-in on the BB server.'));
+        pending.reject(error);
       }
       this.pending.clear();
+      this.disconnected?.(error);
     };
     this.child.on('error', fail);
     this.child.on('exit', fail);
@@ -81,7 +84,7 @@ export function requireSubscriptionAccount(value: unknown): void {
   if (!result.success || result.data.account?.type !== 'chatgpt') throw new Error('Live Voice requires Codex signed in with ChatGPT on the BB server. Run codex login there; API keys are not supported.');
 }
 
-export async function createSubscriptionCall(sdp: string, command = 'codex'): Promise<string> {
+export async function createSubscriptionCall(sdp: string, command = 'codex', startupBriefing?: string | null): Promise<string> {
   let nativeThreadId: string | undefined;
   let resolveSdp!: (value: string) => void;
   let rejectSdp!: (error: Error) => void;
@@ -102,7 +105,7 @@ export async function createSubscriptionCall(sdp: string, command = 'codex'): Pr
     const [, result] = await Promise.all([
       connection.request('thread/realtime/start', {
         threadId: nativeThreadId, transport: { type: 'webrtc', sdp }, version: 'v3', outputModality: 'audio', includeStartupContext: false,
-        clientManagedHandoffs: true, initialItems: [{ role: 'developer', text: voiceInstructions }],
+        clientManagedHandoffs: true, initialItems: [{ role: 'developer', text: voiceInstructions }, ...(startupBriefing === undefined ? [] : [{ role: 'developer', text: startupBriefing ?? 'No thread briefing is supplied for this call. The backing agent has the history; retrieve missing facts through it. Do not claim to have read or remember background that was not supplied. Respond to the user’s actual words.' }])],
       }), answer,
     ]);
     await connection.request('thread/realtime/stop', { threadId: nativeThreadId });

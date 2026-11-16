@@ -6,6 +6,7 @@ export function createTraceStore(bb: BbPluginApi) {
   bb.storage.migrate(db, [
     'CREATE TABLE voice_trace_sessions (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, adapter TEXT NOT NULL, started_at INTEGER NOT NULL, bytes INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0)',
     'CREATE TABLE voice_trace_events (session_id TEXT NOT NULL, source TEXT NOT NULL, seq INTEGER NOT NULL, received_at INTEGER NOT NULL, entry TEXT NOT NULL, PRIMARY KEY(session_id, source, seq))',
+    'CREATE TABLE voice_briefings (thread_id TEXT PRIMARY KEY, touched INTEGER NOT NULL, revision TEXT, generated_at INTEGER, text TEXT, status TEXT NOT NULL DEFAULT \'missing\', error TEXT)',
   ]);
   const prune = db.transaction(() => {
     db.prepare('DELETE FROM voice_trace_sessions WHERE started_at < ? OR id NOT IN (SELECT id FROM voice_trace_sessions ORDER BY started_at DESC, rowid DESC LIMIT 20)').run(Date.now() - 7 * 86400000);
@@ -26,6 +27,7 @@ export function createTraceStore(bb: BbPluginApi) {
     return true;
   });
   return {
+    database: db,
     start(id: string, threadId: string, adapter: string) { db.prepare('INSERT OR REPLACE INTO voice_trace_sessions (id, thread_id, adapter, started_at) VALUES (?, ?, ?, ?)').run(id, threadId, adapter, Date.now()); prune(); },
     write,
     prune,

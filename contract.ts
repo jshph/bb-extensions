@@ -2,13 +2,17 @@ import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { spokenTurnSchema } from './conversation';
 import { traceEntrySchema } from './trace';
+import { briefingStatusSchema } from './briefing-cache';
 
 const session = z.object({ sessionId: z.string().uuid() });
 export const rpcContract = defineRpcContract({
+  briefingStatus: { input: z.object({ threadId: z.string().min(1).max(200) }), output: briefingStatusSchema },
+  prepareBriefing: { input: z.object({ threadId: z.string().min(1).max(200) }), output: briefingStatusSchema },
+  forgetBriefing: { input: z.object({ threadId: z.string().min(1).max(200) }), output: z.object({ forgotten: z.boolean() }) },
   available: { input: z.object({ threadId: z.string().min(1).max(200) }), output: z.object({ available: z.boolean() }) },
   start: {
     input: session.extend({ threadId: z.string().min(1).max(200), sdp: z.string().min(1).max(131072) }),
-    output: z.object({ sdp: z.string(), adapter: z.enum(['native', 'delegated']) }),
+    output: z.object({ sdp: z.string(), adapter: z.enum(['native', 'delegated']), briefing: z.enum(['ready', 'lookup']).optional() }),
   },
   trace: { input: session.extend({ entries: z.array(traceEntrySchema).max(50) }), output: z.object({ saved: z.boolean() }) },
   traceSessions: { input: z.object({ threadId: z.string().max(200).optional() }), output: z.array(z.object({ sessionId: z.string(), threadId: z.string(), adapter: z.string(), startedAt: z.number(), bytes: z.number(), dropped: z.number() })) },
