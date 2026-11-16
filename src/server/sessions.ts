@@ -11,7 +11,7 @@ export type Update = { seq: number; id: string; text: string; channel: 'speakabl
 export interface Job { id: string; abort: AbortController; signal: WakeSignal; reply: DelegationReply; finished: boolean; emitted: boolean; decided: Promise<void>; decide(): void; }
 export interface Session {
   id: string; threadId: string; adapter: 'native' | 'delegated'; abort: AbortController; touched: number; startedAt: number; backgroundMode: BackgroundMode; diagnostics: Diagnostics; warn(): void;
-  updates: Update[]; sequence: number; superseded: Set<string>; seen: Set<string>; job: Job | null; running: Set<Job>; attention: boolean;
+  updates: Update[]; sequence: number; superseded: Set<string>; seen: Set<string>; job: Job | null; running: Set<Job>; attention: boolean; attentionCheckedAt: number; attentionRefresh: Promise<void> | null;
   context: DelegationContext; ended: string | null;
   nativeSignal: WakeSignal; nativeCursor: number; nativeWorking: boolean; notifying: boolean;
 }
@@ -22,7 +22,7 @@ export interface Reservation { readonly sessionId: string; readonly threadId: st
 export type SessionInit = Pick<Session, 'id' | 'threadId' | 'adapter' | 'backgroundMode' | 'diagnostics' | 'warn' | 'nativeWorking'>;
 
 export function newSession(init: SessionInit): Session {
-  return { id: init.id, threadId: init.threadId, adapter: init.adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: init.backgroundMode, diagnostics: init.diagnostics, warn: init.warn, updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, running: new Set(), attention: false, context: new DelegationContext(), ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: init.nativeWorking, notifying: false };
+  return { id: init.id, threadId: init.threadId, adapter: init.adapter, abort: new AbortController(), touched: Date.now(), startedAt: Date.now(), backgroundMode: init.backgroundMode, diagnostics: init.diagnostics, warn: init.warn, updates: [], sequence: 0, superseded: new Set(), seen: new Set(), job: null, running: new Set(), attention: false, attentionCheckedAt: -Infinity, attentionRefresh: null, context: new DelegationContext(), ended: null, nativeSignal: new WakeSignal(), nativeCursor: 0, nativeWorking: init.nativeWorking, notifying: false };
 }
 
 /** Session state changes that the Claude runner and native observer report back to the registry. */
