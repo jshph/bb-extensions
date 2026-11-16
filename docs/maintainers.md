@@ -8,47 +8,59 @@ The reusable part of the experience is the conversation around the coding task: 
 
 Keeping Tandem separate lets that behavior evolve without making BB core own its prompts, briefing strategy or UI. It also makes the Claude use case explicit: the voice model and the coding agent do not have to be the same service. This is an ownership and release choice. The same boundaries could support a BB-maintained voice frontend; a plugin is not required merely to offer settings.
 
-## How the pieces fit together
+## Architecture: native Codex
 
-Tandem uses Codex subscription voice for both coding providers. BB still owns the coding threads and their permissions. The new operation in this PR supplies access to the native Codex connection; the Claude path uses existing BB thread APIs.
+The new core operation reaches BB’s existing `codex app-server` connection. It negotiates realtime on that connection’s native thread. Codex owns the native coding handoff; Tandem does not turn it into another `threads.send` call.
 
 ```mermaid
 flowchart TB
-  User["User: microphone and speaker"] <--> Browser["Tandem in the browser<br/>Audio, controls and call state"]
-  Browser <-->|"Live audio and voice events"| Voice["Codex realtime voice<br/>ChatGPT subscription"]
-
-  subgraph CodexPath["Coding in an existing Codex thread"]
-    API["NEW IN THIS PR<br/>BB thread voice API<br/>SDK and CLI"]
-    Connection["Existing Codex provider connection<br/>Same backing thread"]
-    Coding["Codex coding agent"]
-    CodexTools["Coding actions<br/>Read and edit files<br/>Run commands and tests"]
-    API --> Connection
-    Connection <--> Coding
-    Coding <-->|"Existing tools and permissions"| CodexTools
-  end
-  Browser -->|"Start, keep alive, stop<br/>Caller-owned startup settings"| API
-  Connection -->|"Negotiate native voice"| Voice
-  Voice <-->|"Native coding handoffs and answers"| Coding
-
-  subgraph ClaudePath["Coding in an existing Claude thread"]
-    Coordinator["Tandem server<br/>Voice requests, follow-ups and results"]
-    Setup["Temporary Codex connection<br/>Audio setup only; then detached"]
-    Thread["Existing BB Claude thread<br/>Conversation, task state and permissions"]
-    Claude["Claude Code coding agent"]
-    ClaudeTools["Coding actions<br/>Read and edit files<br/>Run commands and tests"]
-    Events["BB thread events<br/>Partial answers and task completion"]
-    Coordinator --> Setup
-    Coordinator -->|"Start a task or steer voice-owned work<br/>Existing BB thread APIs"| Thread
-    Thread --> Claude
-    Claude <-->|"Existing tools and permissions"| ClaudeTools
-    Claude -->|"Agent answers"| Events
-    Events -->|"Stream findings and final answer"| Coordinator
-  end
-  Browser <-->|"Spoken requests and corrections<br/>Coding results returned to voice"| Coordinator
-  Setup -->|"Negotiate subscription voice"| Voice
+  Browser["Tandem browser<br/>RTCPeerConnection and data channel"]
+  Voice["Codex realtime voice<br/>ChatGPT subscription"]
+  Browser <-->|"WebRTC audio and realtime events"| Voice
+  Browser -->|"threads.experimental_voice<br/>start / keepAlive / stop"| BB["BB server and host daemon<br/>thread.voice command"]
+  BB -->|"thread/voice<br/>Provider bridge request"| Bridge["Codex provider bridge<br/>CodexVoiceSession"]
+  Bridge -->|"thread/realtime/start<br/>Existing providerThreadId"| AppServer["Existing codex app-server process<br/>Same BB coding thread connection"]
+  AppServer -->|"thread/realtime/sdp<br/>Answer returned through BB"| Bridge
+  AppServer <-->|"Codex-managed realtime session<br/>Native coding delegation and results"| Voice
+  AppServer <-->|"Existing Codex thread<br/>Normal coding turns and tools"| Coding["Codex coding agent<br/>File edits, commands and tests"]
+  AppServer -->|"turn/started and item notifications<br/>Normal BB event translation"| Bridge
 ```
 
-The diagram shows logical responsibilities, not every network hop. Both paths use Codex’s audio capability; the Claude path has its own temporary audio-setup connection and does not reuse a Codex coding thread. Native Codex handoffs remain on the original connection, so Tandem does not submit them again. The plugin owns prompts, selected background and conversation delivery; core owns access, connection routing and lifecycle.
+## Architecture: Codex voice with Claude coding
+
+This is the plugin-managed path, included to explain why Tandem is shared across coding providers. `clientManagedHandoffs: true` makes the browser receive a `delegation.created` event instead of asking the temporary Codex thread to do the coding. Tandem delivers the task to the existing Claude thread and returns its answer to that same delegation.
+
+```mermaid
+sequenceDiagram
+  participant Browser as Tandem browser
+  participant Tandem as Tandem server
+  participant Setup as Temporary codex app-server
+  participant Voice as Codex realtime voice
+  participant Thread as Existing BB Claude thread
+  participant Claude as Claude Code provider / CLI
+
+  Browser->>Tandem: Start voice (SDP offer)
+  Tandem->>Setup: thread/start (isolated audio-setup thread)
+  Tandem->>Setup: thread/realtime/start (clientManagedHandoffs: true)
+  Setup-->>Tandem: thread/realtime/sdp (answer)
+  Tandem->>Setup: thread/realtime/stop, thread/archive, close process
+  Tandem-->>Browser: SDP answer
+  Browser->>Voice: Connect WebRTC audio and data channel
+  Note over Setup: Setup process is gone and executes no coding work
+
+  Voice-->>Browser: delegation.created (target: client, delegation ID)
+  Browser->>Tandem: delegate RPC (ID, task, spoken context)
+  Tandem->>Thread: threads.send (start or steer voice-owned turn)
+  Thread->>Claude: Existing provider starts or steers coding work
+  Claude->>Claude: Read/edit files, run commands and tests (normal permissions)
+  Claude-->>Thread: Agent text deltas and completion
+  Thread-->>Tandem: item/agentMessage/delta, item/completed
+  Tandem-->>Browser: voice-changed notification, then poll updates
+  Browser->>Voice: delegation.context.append (delegation ID, answer text)
+  Voice-->>Browser: Spoken answer over WebRTC
+```
+
+The audio provider is Codex in both paths. The app-server processes and coding threads are different: native Codex reuses BB’s existing connection, while Claude uses a disposable Codex connection only for audio setup. Claude’s normal provider and permissions own file edits and commands. Only agent answers—not raw tool logs—are streamed back for speech. These diagrams name the current protocol operations; they do not propose a second coding writer or a general audio-provider framework.
 
 ## What stays in BB
 
