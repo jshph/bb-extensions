@@ -41,7 +41,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
           const callConfig = await settings.get();
           voice = selectedVoice(callConfig.voice);
           adapter = thread.providerId === 'codex' ? 'native' : 'delegated';
-          session = newSession({ id: sessionId, threadId, adapter, backgroundMode: callConfig.cachedBriefing ? 'cached' : 'off', title: thread.title, diagnostics: callConfig.diagnostics as Diagnostics, warn: rateLimitedWarning(() => bb.log.warn('Voice diagnostic records could not be saved')), nativeWorking: thread.status === 'active' });
+          session = newSession({ id: sessionId, threadId, adapter, backgroundMode: callConfig.cachedBriefing ? 'cached' : 'off', diagnostics: callConfig.diagnostics as Diagnostics, warn: rateLimitedWarning(() => bb.log.warn('Voice diagnostic records could not be saved')), nativeWorking: thread.status === 'active' });
           sessions.add(reservation, session);
         } catch (error) { sessions.release(reservation); throw error; }
         try { traces.start(sessionId, threadId, adapter, session.diagnostics); trace(session, 'session.start', { state: adapter }); trace(session, 'session.voice', { state: voice ?? 'default' }); trace(session, 'context.policy', { state: session.backgroundMode }); trace(session, 'diagnostics.policy', { state: session.diagnostics }); } catch { session.warn(); }
