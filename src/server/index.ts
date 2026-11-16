@@ -8,6 +8,7 @@ import { createClaudeRunner, type ClaudeRunnerOptions } from './claude-runner';
 import { nativeVoice } from './native';
 import { observeNative } from './native-observer';
 import { createSessionRegistry, newSession, type Session } from './sessions';
+import { openDatabase } from './storage';
 import { createTraceStore } from './trace-store';
 import { failureReason, rateLimitedWarning, type Diagnostics } from '../shared/trace';
 import { createBriefingCache } from './briefing/briefing-cache';
@@ -20,11 +21,12 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
   return async function plugin(bb: BbPluginApi) {
     const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, voice: { type: 'select', label: 'Voice', description: 'Voice for new Codex and Claude calls. Default keeps Codex’s voice choice (normally Cove). End and start a new call after changing this setting.', options: ['default', ...voiceNames], default: 'default' }, cachedBriefing: { type: 'boolean', label: 'Cached briefing', description: 'Experimental: supply a current prepared briefing when a new call starts. If unavailable, use retrieval for that call. Changes apply to new calls.', default: false }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
     const openCall = connect ?? (async (sdp: string, startupBriefing?: string | null, voice?: Voice) => createSubscriptionCall(sdp, (await settings.get()).codexCommand, startupBriefing, voice));
-    const traces = createTraceStore(bb);
+    const db = openDatabase(bb);
+    const traces = createTraceStore(db);
     const sessions = createSessionRegistry(bb, traces, (threadId, sessionId) => nativeConnect(bb, threadId, { action: 'stop', sessionId }));
     const { trace, changed, end, get } = sessions;
     const claude = createClaudeRunner(bb, sessions, options);
-    const briefings = createBriefingCache(bb, traces.database, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal));
+    const briefings = createBriefingCache(bb, db, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal));
     settings.onChange(next => { if (!next.cachedBriefing) briefings.cancel(); });
     function refreshAttention(session: Session): Promise<void> | void {
       if (session.attentionRefresh) return session.attentionRefresh;
