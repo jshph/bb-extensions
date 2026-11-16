@@ -62,7 +62,7 @@ export class BrowserTrace {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private sending: Promise<void> | null = null;
   private mode: Diagnostics = 'basic';
-  private warn = rateLimitedWarning(() => console.warn('Live Voice diagnostic batches were not saved; sequence gaps indicate loss.'));
+  private warn = rateLimitedWarning(() => console.warn('Tandem diagnostic batches were not saved; sequence gaps indicate loss.'));
   constructor(private readonly send: (entries: TraceEntry[]) => Promise<unknown>) {}
   configure(mode: Diagnostics) { this.mode = mode; }
   get detailed(): boolean { return this.mode === 'detailed'; }

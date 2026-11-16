@@ -248,7 +248,7 @@ function VoiceAction() {
   if (ownsCall) return <div ref={anchor}><CallControls compact /></div>;
   if (!newThread && (!threadId || available !== threadId)) return null;
   if (newThread && !supportsVoice(composer.selection?.providerId)) return null;
-  const label = call ? 'Switch live voice to this thread' : newThread ? 'Start live voice in a new thread' : 'Start live voice';
+  const label = call ? 'Switch Tandem to this thread' : newThread ? 'Start Tandem in a new thread' : 'Start Tandem';
   return <div className="flex items-center gap-1">
     <button type="button" aria-label={label} title={label} onClick={launch} className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"><Waveform /></button>
     {message ? <span role="alert" className="max-w-64 text-xs">{message}</span> : null}

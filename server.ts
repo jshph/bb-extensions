@@ -143,8 +143,8 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
       available: async ({ threadId }) => { const thread = await bb.sdk.threads.get({ threadId }); return { available: ['codex', 'claude-code', 'claude'].includes(thread.providerId) }; },
       start: async ({ sessionId, threadId, sdp }) => {
         const thread = await bb.sdk.threads.get({ threadId });
-        if (sessions.has(sessionId) || [...sessions.values()].some(session => session.threadId === threadId)) throw new Error('This thread already has a Live Voice call. End it first.');
-        if (sessions.size >= 4) throw new Error('Four Live Voice calls are already open. End a call first.');
+        if (sessions.has(sessionId) || [...sessions.values()].some(session => session.threadId === threadId)) throw new Error('This thread already has a Tandem call. End it first.');
+        if (sessions.size >= 4) throw new Error('Four Tandem calls are already open. End a call first.');
         const callConfig = await settings.get();
         const voice = selectedVoice(callConfig.voice);
         const adapter: Session['adapter'] = thread.providerId === 'codex' ? 'native' : 'delegated';

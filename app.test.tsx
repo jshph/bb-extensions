@@ -54,7 +54,7 @@ describe('voice launch surfaces', () => {
     const launcher = renderSlot(action, {}, { composer: { scope: { kind: 'new-thread', projectId: selection.projectId }, selection, text: 'Do not submit this draft' }, sdk: { threads: { spawn } } });
     const callBar = renderSlot(overlay, {}, { rpc });
     expect(spawn).not.toHaveBeenCalled();
-    fireEvent.click(launcher.getByRole('button', { name: 'Start live voice in a new thread' }));
+    fireEvent.click(launcher.getByRole('button', { name: 'Start Tandem in a new thread' }));
     await waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
     fireEvent.click(within(launcher.container).getByRole('status', { name: 'Connecting voice…' }));
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -77,16 +77,16 @@ describe('voice launch surfaces', () => {
   it('keeps A connected while browsing B and switches only on explicit action', async () => {
     const callBar = renderSlot(overlay, {}, { rpc });
     const a = renderSlot(action, {}, { rpc, composer: { scope: { kind: 'thread', threadId: 'A' } }, sdk: { threads: { get: async () => threadA } } });
-    fireEvent.click(await a.findByRole('button', { name: 'Start live voice' }));
+    fireEvent.click(await a.findByRole('button', { name: 'Start Tandem' }));
     await callBar.findByRole('status', { name: 'Voice connected' });
     a.unmount();
     const b = renderSlot(action, {}, { rpc, composer: { scope: { kind: 'thread', threadId: 'B' } }, sdk: { threads: { get: async () => ({ ...threadA, id: 'B', title: 'Thread B' }) } } });
     expect(stops).not.toHaveBeenCalled();
-    fireEvent.click(await b.findByRole('button', { name: 'Switch live voice to this thread' }));
+    fireEvent.click(await b.findByRole('button', { name: 'Switch Tandem to this thread' }));
     expect(starts).toHaveBeenCalledTimes(1);
     fireEvent.click(callBar.getByRole('button', { name: 'Keep this call' }));
     expect(stops).not.toHaveBeenCalled();
-    fireEvent.click(b.getByRole('button', { name: 'Switch live voice to this thread' }));
+    fireEvent.click(b.getByRole('button', { name: 'Switch Tandem to this thread' }));
     fireEvent.click(callBar.getByRole('button', { name: 'Switch call' }));
     await b.findByRole('status', { name: 'Voice connected' });
     expect(document.querySelector('section[aria-label="Live voice call"]')).toBeNull();
@@ -101,7 +101,7 @@ describe('voice launch surfaces', () => {
     let created!: (thread: typeof threadA) => void;
     const launcher = renderSlot(action, {}, { composer: { scope: { kind: 'new-thread', projectId: selection.projectId }, selection }, sdk: { threads: { spawn: () => new Promise<typeof threadA>(resolve => { created = resolve; }) } } });
     renderSlot(overlay, {}, { rpc });
-    fireEvent.click(launcher.getByRole('button', { name: 'Start live voice in a new thread' }));
+    fireEvent.click(launcher.getByRole('button', { name: 'Start Tandem in a new thread' }));
     await waitFor(() => expect(created).toBeTypeOf('function'));
     fireEvent(window, new Event('pagehide'));
     await act(async () => created(threadA));
@@ -113,7 +113,7 @@ describe('voice launch surfaces', () => {
     const spawn = vi.fn(async () => ({ ...threadA, status: 'error' as const }));
     const launcher = renderSlot(action, {}, { composer: { scope: { kind: 'new-thread', projectId: selection.projectId }, selection }, sdk: { threads: { spawn } } });
     const callBar = renderSlot(overlay, {}, { rpc });
-    fireEvent.click(launcher.getByRole('button', { name: 'Start live voice in a new thread' }));
+    fireEvent.click(launcher.getByRole('button', { name: 'Start Tandem in a new thread' }));
     expect((await callBar.findByRole('alert')).textContent).toContain('could not start');
     expect(callBar.getByRole('button', { name: 'Thread A' })).toBeTruthy();
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -123,7 +123,7 @@ describe('voice launch surfaces', () => {
   it('moves controls to the composer on the call thread and ends without cancelling work', async () => {
     const callBar = renderSlot(overlay, {}, { rpc, context: { threadId: 'A' } });
     const launcher = renderSlot(action, {}, { rpc, composer: { scope: { kind: 'thread', threadId: 'A' } }, sdk: { threads: { get: async () => threadA } } });
-    fireEvent.click(await launcher.findByRole('button', { name: 'Start live voice' }));
+    fireEvent.click(await launcher.findByRole('button', { name: 'Start Tandem' }));
     await waitFor(() => expect(starts).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(launcher.getByRole('status', { name: 'Voice connected' })).toBeTruthy());
     expect(document.querySelector('section[aria-label="Live voice call"]')).toBeNull();
@@ -172,7 +172,7 @@ describe('voice launch surfaces', () => {
   it('shows connected, muted and speaking waveforms in both composer and floating controls', async () => {
     const callBar = renderSlot(overlay, {}, { rpc });
     const launcher = renderSlot(action, {}, { rpc, composer: { scope: { kind: 'thread', threadId: 'A' } }, sdk: { threads: { get: async () => threadA } } });
-    fireEvent.click(await launcher.findByRole('button', { name: 'Start live voice' }));
+    fireEvent.click(await launcher.findByRole('button', { name: 'Start Tandem' }));
     const controls = await launcher.findByRole('status', { name: 'Voice connected' });
     expect(controls.querySelector('svg')?.getAttribute('data-voice-state')).toBe('listening');
     expect(controls.hasAttribute('aria-expanded')).toBe(false);

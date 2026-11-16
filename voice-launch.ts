@@ -7,7 +7,7 @@ export function voiceThreadRequest(selection: ComposerSelection | null) {
   if (!selection?.projectId || !selection.environment || !selection.providerId || !selection.model || !selection.permissionMode) {
     throw new Error('Choose a project, environment, provider and model before starting voice.');
   }
-  if (!supportsVoice(selection.providerId)) throw new Error('Live Voice supports Codex and Claude threads.');
+  if (!supportsVoice(selection.providerId)) throw new Error('Tandem supports Codex and Claude threads.');
   return { ...selection, projectId: selection.projectId, environment: selection.environment, providerId: selection.providerId, input: [], title: 'Voice conversation' };
 }
 

@@ -1,6 +1,6 @@
-# Live Voice (working name)
+# Tandem
 
-One voice interface for Codex and Claude threads in BB, using Codex’s ChatGPT subscription authentication. The name is provisional. This repository is an experimental private release, not a Community marketplace submission.
+One voice interface for Codex and Claude threads in BB, using Codex’s ChatGPT subscription authentication. Tandem is an experimental developer preview. Native Codex voice requires a customized BB bridge; general stock-BB compatibility is not established. See [release status](docs/release.md) before installing or distributing it.
 
 ## What it does
 
@@ -65,7 +65,7 @@ bb plugin reload live-voice
 
 The plugin also exposes schema-validated RPC methods through `bb plugin rpc inspect live-voice`: `available`, `start`, `stop`, `context`, `poll`, `delegate`, and `control`. `start` requires a caller-owned WebRTC SDP offer; the CLI does not record audio. `poll` takes an optional `afterSeq` cursor. `control` accepts `cancelWork`. `delegate` is only for the detached Claude adapter.
 
-End existing calls before upgrading, then start a new call. The source and installed package retain the provisional `live-voice` identity until naming is settled.
+End existing calls before upgrading, then start a new call. Tandem retains the package name `bb-plugin-live-voice` and plugin ID `live-voice` so existing installations keep their settings, briefing cache and traces. The project and plugin display name are Tandem; CLI commands continue to use `live-voice`.
 
 ## Per-call diagnostics
 

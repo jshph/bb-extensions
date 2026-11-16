@@ -82,7 +82,7 @@ export const voiceInstructions = [
 
 export function requireSubscriptionAccount(value: unknown): void {
   const result = z.object({ account: z.object({ type: z.string() }).nullable().optional() }).safeParse(value);
-  if (!result.success || result.data.account?.type !== 'chatgpt') throw new Error('Live Voice requires Codex signed in with ChatGPT on the BB server. Run codex login there; API keys are not supported.');
+  if (!result.success || result.data.account?.type !== 'chatgpt') throw new Error('Tandem requires Codex signed in with ChatGPT on the BB server. Run codex login there; API keys are not supported.');
 }
 
 export async function createSubscriptionCall(sdp: string, command = 'codex', startupBriefing?: string | null, voice?: Voice): Promise<string> {

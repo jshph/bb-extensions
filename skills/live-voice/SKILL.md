@@ -1,9 +1,9 @@
 ---
-name: live-voice
-description: Explain or troubleshoot the Live Voice plugin, shared Codex/Claude controls, subscription authentication, and delegation lifecycle.
+name: tandem
+description: Explain or troubleshoot the Tandem plugin, shared Codex/Claude controls, subscription authentication, and delegation lifecycle.
 ---
 
-Live Voice is the provisional name of the shared voice UI for Codex and Claude threads. Start it from the waveform next to dictation. Mute affects microphone capture. End closes voice while leaving submitted coding work running. Use BB’s thread controls to explicitly cancel agent work; completed actions are not undone. The voice controls expose mute and hang-up, without a separate Stop agent action.
+Tandem is the shared voice UI for Codex and Claude threads. Start it from the waveform next to dictation. Mute affects microphone capture. End closes voice while leaving submitted coding work running. Use BB’s thread controls to explicitly cancel agent work; completed actions are not undone. The voice controls expose mute and hang-up, without a separate Stop agent action.
 
 Voice stays connected to its original thread during in-app navigation. On that thread, the waveform starts the call; live mute and circular red hang-up controls stay visible without an expansion stage. The live waveform is a noninteractive status indicator. Off-thread, a compact floating dial provides the same controls and a link back to the thread. Connected/unmuted waveforms pulse gently; detected assistant playback animates their bars and adds a glow. Muted silence is steady, while assistant playback can still glow with the mic muted. Both surfaces keep Mute and End visible; the live waveform has no toggle action. Composer controls fit the 36-pixel clipped action slot; floating controls are 44 pixels. Connecting calls expose End; disconnected calls expose Reconnect and End. Reduced-motion preferences suppress animation. The connected pulse is a state indicator, not a microphone-volume meter. Agent progress and briefing status are omitted from the call controls; connection and actionable error feedback remain. Starting voice elsewhere offers Switch call or Keep this call; switching ends only the old voice connection. One call per app window; server limits still apply across windows. Page exit/reload ends voice. Restarting makes a fresh realtime conversation using that thread's background policy, not restored audio-call memory. There is no pause/resume state.
 
