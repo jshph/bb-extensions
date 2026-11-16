@@ -21,7 +21,8 @@ flowchart TB
   Agent["Codex coding agent<br/>Files, commands and tests"]
   Tandem -->|Start or end call| BB
   BB -->|Use existing connection| Server
-  Server <-->|Voice conversation| Voice
+  Server -->|Set up native voice| Voice
+  Tandem <-->|Browser audio| Voice
   Server <-->|Native coding handoff and answer| Agent
 ```
 
@@ -44,7 +45,7 @@ flowchart TB
   Tandem -->|Return answer for speech| Voice
 ```
 
-The distinction is who connects voice requests to coding work: Codex handles its own native handoff, while Tandem connects Codex voice to Claude through existing BB thread APIs. This PR supplies the missing access to the existing Codex connection. Claude's coding integration already uses BB's public APIs and stays in the plugin.
+The distinction is who connects voice requests to coding work: Codex handles its own native handoff, while Tandem connects Codex voice to Claude through existing BB thread APIs. The native-voice core proposal supplies the missing access to the existing Codex connection. Claude's coding integration already uses BB's public APIs and stays in the plugin.
 
 ## How a spoken task reaches the coding agent
 
@@ -94,7 +95,9 @@ For Claude, Tandem temporarily starts an isolated, ChatGPT-authenticated Codex a
 
 ### Native voice on an existing Codex thread
 
-The transport proposal exposes `threads.experimental_voice` and the matching `bb thread voice` commands. A client supplies its WebRTC offer and receives the answer. Optional bounded startup fields select the voice, provide initial reference text and set call-scoped instructions for native coding handoffs. BB does not choose or synthesize that text. An explicit empty initial reference suppresses native startup history; omitting the field retains provider defaults. There is no midcall context-update operation in this proposal.
+The transport proposal exposes `threads.experimental_voice` and the matching `bb thread voice` commands. A client supplies its WebRTC offer and receives the answer. Optional bounded startup fields select the voice, provide initial reference text and supply startup guidance for native coding handoffs. BB does not choose or synthesize that text. An explicit empty initial reference suppresses native startup history; omitting the field retains provider defaults. There is no midcall context-update operation in this proposal.
+
+In Codex 0.160.1, the provider renders that guidance into the coding thread's history on its first step during a call. The text remains in history; Codex adds a generic end notice on the first step after hang-up. If another call starts before an intervening step, the previous guidance can remain in effect. These instructions do not have isolated per-call scope. Native handoffs use the running turn's settings or the last submitted settings, including permissions; unsent composer selections do not apply. The proposed bridge checks the running app-server version and requires Codex 0.147.0 or newer to avoid silently ignored startup fields.
 
 This lets Tandem supply its own behavior and startup briefing without embedding Tandem prompts or history queries in BB. Other callers, including a future built-in frontend, can choose different initial text through the same path.
 

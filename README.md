@@ -30,7 +30,7 @@ The same separation could support a built-in BB voice interface later. A plugin 
 - For Claude threads, your existing Claude provider setup. Voice uses Codex’s subscription; coding work continues through Claude with its existing authentication and billing.
 - For native Codex calls and voice from New thread, the additional BB capabilities described in [release status](docs/release.md). General compatibility with unmodified BB releases is not established.
 
-Linux browser/server transport has automated coverage. Physical microphone/speaker routing, Bluetooth, Safari and background/lock-screen behavior need further testing. The Codex realtime protocol is experimental and can require adapter updates.
+Automated tests use simulated browser audio, Codex and BB services; they do not establish live transport compatibility. Physical microphone/speaker routing, Bluetooth, Safari and background/lock-screen behavior need further testing. The Codex realtime protocol is experimental and can require adapter updates.
 
 ## Settings
 
