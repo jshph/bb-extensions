@@ -36,3 +36,9 @@ Preserve the existing MIT license and attribution. There has been no trademark o
 - Provider initialization before a first coding task: [PR #7620](https://github.com/get-bb/bb/pull/7620), tracking Tandem’s [issue #7619](https://github.com/get-bb/bb/issues/7619). This is related to Conductor’s pending-thread proposal but deliberately initializes the provider for an explicit voice-first action.
 
 These contributions are open and ready for maintainer review; they are not merged features or a supported BB release. Both are based independently on upstream protocol 265 and propose 266; their final protocol numbers must be coordinated if both land. The current custom installation’s protocol 271 is a separate deployment history, not a requirement to copy into upstream.
+
+## 0.3.5 continuity update
+
+Cached briefing now retains bounded completed speech privately for later calls, on both native Codex and Claude paths. The backing agent can retrieve the latest three retained calls through the voiceHistory RPC. Native provider user messages enter briefing evidence when BB exposes them. See context.md for retention, clearing, forgetting and best-effort transcript limits. No audio is stored, and no context is injected mid-call.
+
+Automated verification passed 121 tests, TypeScript and the BB plugin build. Fresh native and Claude device calls remain unverified.

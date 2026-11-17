@@ -7,11 +7,11 @@ import type { VoiceClientOptions } from './voice-client';
 import { voiceCalls } from './voice-launch';
 import { callUi } from './call-ui';
 
-const { starts, stops } = vi.hoisted(() => ({ starts: vi.fn(), stops: vi.fn() }));
+const { starts, stops, clients } = vi.hoisted(() => ({ starts: vi.fn(), stops: vi.fn(), clients: [] as VoiceClientOptions[] }));
 vi.mock('./voice-client', () => ({ VoiceClient: class {
   sessionId = crypto.randomUUID();
   stopped = false;
-  constructor(private options: VoiceClientOptions) {}
+  constructor(private options: VoiceClientOptions) { clients.push(options); }
   async start() {
     starts(); this.options.state('connecting', null);
     await this.options.request({ action: 'start', sessionId: this.sessionId, sdp: 'test-offer' });
@@ -38,7 +38,7 @@ const rpc = {
 };
 
 beforeEach(() => {
-  starts.mockClear(); stops.mockClear();
+  starts.mockClear(); stops.mockClear(); clients.length = 0;
   vi.stubGlobal('RTCPeerConnection', class {});
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn() } });
 });
@@ -199,4 +199,19 @@ describe('voice launch surfaces', () => {
     expect(floating.querySelector('svg')?.getAttribute('data-voice-state')).toBe('muted');
   });
 
+});
+
+for (const adapter of ['native', 'delegated']) it(`${adapter} saves completed speech for continuity and includes it on hang-up`, async () => {
+  const remember = vi.fn(async () => ({ saved: true }));
+  const stop = vi.fn(async () => ({ stopped: true }));
+  const launcher = renderSlot(action, {}, { composer: { scope: { kind: 'thread', threadId: 'A' } }, sdk: { threads: { get: async () => threadA } }, rpc });
+  const bar = renderSlot(overlay, {}, { rpc: { ...rpc, start: () => ({ sdp: 'answer', adapter, continuity: true }), remember, stop } });
+  fireEvent.click(await launcher.findByRole('button', { name: 'Start Tandem' }));
+  await bar.findByRole('status', { name: 'Voice connected' });
+  act(() => {
+    clients[0]!.event?.({ type: 'turn.done', turn: { role: 'user', transcript: 'Keep the blue version' } });
+  });
+  await waitFor(() => expect(remember).toHaveBeenCalledWith(expect.objectContaining({ turns: [expect.objectContaining({ text: 'Keep the blue version', complete: true })] })));
+  fireEvent.click(bar.getByRole('button', { name: 'End call' }));
+  await waitFor(() => expect(stop).toHaveBeenCalledWith(expect.objectContaining({ turns: [expect.objectContaining({ text: 'Keep the blue version' })] })));
 });

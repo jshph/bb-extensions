@@ -11,6 +11,8 @@ export const migrations = [
   'CREATE TABLE voice_trace_events (session_id TEXT NOT NULL, source TEXT NOT NULL, seq INTEGER NOT NULL, received_at INTEGER NOT NULL, entry TEXT NOT NULL, PRIMARY KEY(session_id, source, seq))',
   'CREATE TABLE voice_briefings (thread_id TEXT PRIMARY KEY, touched INTEGER NOT NULL, revision TEXT, generated_at INTEGER, text TEXT, status TEXT NOT NULL DEFAULT \'missing\', error TEXT)',
   "ALTER TABLE voice_trace_sessions ADD COLUMN diagnostics TEXT NOT NULL DEFAULT 'detailed'",
+  'CREATE TABLE voice_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, thread_id TEXT NOT NULL, started_at INTEGER NOT NULL, turns TEXT NOT NULL, version INTEGER NOT NULL)',
+  'CREATE INDEX voice_memory_thread ON voice_memory (thread_id, started_at)',
 ] as const;
 
 export function openDatabase(bb: Pick<BbPluginApi, 'storage'>): Database {

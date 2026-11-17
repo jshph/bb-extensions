@@ -85,7 +85,9 @@ function Voice({ threadId, signal }: { threadId: string; signal: AbortSignal }) 
       setMessage('Voice needs microphone access in a supported browser over HTTPS.');
       return;
     }
-    delivered.current.clear(); conversation.current = new SpokenConversation(); afterSeq.current = 0; replyText.current.clear();
+    let remembers = false, memoryVersion = 0;
+    const callConversation = new SpokenConversation();
+    delivered.current.clear(); conversation.current = callConversation; afterSeq.current = 0; replyText.current.clear();
     setMuted(false); setBlocked(false);
     let traceReady!: () => void;
     const ready = new Promise<void>(resolve => { traceReady = resolve; });
@@ -107,8 +109,8 @@ function Voice({ threadId, signal }: { threadId: string; signal: AbortSignal }) 
       },
       audioBlocked: () => setBlocked(true),
       request: async command => {
-        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; diagnostic.configure(result.diagnostics); return result; } finally { traceReady(); } }
-        if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId }); }
+        if (command.action === 'start') { try { const result = await rpc.call('start', { threadId, sessionId: command.sessionId, sdp: command.sdp }); adapter.current = result.adapter; remembers = result.continuity ?? false; diagnostic.configure(result.diagnostics); return result; } finally { traceReady(); } }
+        if (command.action === 'stop') { void diagnostic.flush(); await rpc.call('stop', { sessionId: command.sessionId, ...(remembers ? { turns: callConversation.snapshot(), version: ++memoryVersion } : {}) }); }
         else apply(await rpc.call('poll', { sessionId: command.sessionId, afterSeq: afterSeq.current }), next);
         return { sdp: null };
       },
@@ -117,8 +119,9 @@ function Voice({ threadId, signal }: { threadId: string; signal: AbortSignal }) 
         if (!parsed.success) return;
         const event = parsed.data;
         if (event.type === 'error') { next.stop(event.error?.message ?? 'Voice connection failed'); return; }
+        callConversation.consume(value);
+        if (remembers && event.type === 'turn.done') void rpc.call('remember', { sessionId: next.sessionId, turns: callConversation.snapshot(), version: ++memoryVersion }).catch(() => {});
         if (adapter.current === 'native') return;
-        conversation.current.consume(value);
         if (event.type === 'turn.done' && event.turn?.role === 'user') {
           for (const pending of [...submissions.current.values()]) pending.send();
         }
@@ -132,12 +135,12 @@ function Voice({ threadId, signal }: { threadId: string; signal: AbortSignal }) 
             if (!pending) return;
             clearTimeout(pending.timer);
             submissions.current.delete(id);
-            void rpc.call('delegate', { sessionId: next.sessionId, id, text, turns: conversation.current.snapshot() }).catch(error => {
+            void rpc.call('delegate', { sessionId: next.sessionId, id, text, turns: callConversation.snapshot() }).catch(error => {
               next.sendResult(id, 'The backing request failed: ' + (error instanceof Error ? error.message : String(error)));
             });
           };
           submissions.current.set(id, { send, timer: setTimeout(send, 350) });
-          if (conversation.current.userComplete) send();
+          if (callConversation.userComplete) send();
         }
       },
     });
