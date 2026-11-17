@@ -35,6 +35,8 @@ the composer on compact screens. Disabling it removes Recents entirely.
 - Navigating to a thread or receiving new unread activity reveals its ancestors.
 - Collapse choices remain local to the browser. The original core storage key,
   `bb.mobileRecents.collapsedThreads`, is retained so existing choices survive.
+- The original `data-root-compose-mobile-recents` and `data-overflow-fade`
+  styling hooks remain available to themes such as Aura.
 
 ## CLI and SDK
 

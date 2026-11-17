@@ -326,13 +326,14 @@ export function Recents({
   }
 
   return (
-    <section data-recents="" aria-labelledby={headingId} className="md:mt-4">
+    <section data-recents="" data-root-compose-mobile-recents="" aria-labelledby={headingId} className="md:mt-4">
       <div className="sticky top-0 z-10 mb-1 bg-background px-2">
         <h2 id={headingId} className={CHROME_SECTION_LABEL_CLASS}>
           Recent
         </h2>
         <div
           aria-hidden
+          data-overflow-fade="below"
           className="pointer-events-none absolute inset-x-0 -bottom-2 h-2 bg-gradient-to-b from-background to-transparent"
         />
       </div>

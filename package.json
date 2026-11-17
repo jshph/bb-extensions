@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-recents",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Recent threads on the new-thread page, with nested threads and live activity.",
   "private": true,
   "license": "MIT",
