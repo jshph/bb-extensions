@@ -49,6 +49,6 @@ Public source and this custom catalog do not submit plugins to BB Community. A C
 
 ## Existing installations
 
-The plugin IDs stay `live-voice`, `recents`, and `aura`. The replaced standalone repositories and personal Aura fork are archived with migration notices; their histories remain available. Running installations and their settings are unchanged. Existing installs keep tracking their old source until explicitly migrated; adding this marketplace alone does not change them. Do not remove and reinstall a plugin casually: settings and storage may need preservation. Reloading Tandem ends active calls, so schedule its source migration between calls.
+The plugin IDs stay `live-voice`, `recents`, and `aura`. The replaced standalone repositories and personal Aura fork are deprecated with migration notices. They remain unarchived while outstanding pull-request reviews continue; their histories remain available. Running installations and their settings are unchanged. Existing installs keep tracking their old source until explicitly migrated; adding this marketplace alone does not change them. Do not remove and reinstall a plugin casually: settings and storage may need preservation. Reloading Tandem ends active calls, so schedule its source migration between calls.
 
 See [HISTORY.md](HISTORY.md) for source provenance and preserved histories. Each plugin’s license governs its code; root tooling is MIT licensed.

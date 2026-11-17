@@ -22,8 +22,10 @@ No application databases, user backgrounds, transcripts, or local account files 
 
 ## Superseded repositories
 
-The standalone Recents and Tandem repositories and the personal Aura fork are retained as archived repositories with migration notices pointing here. Existing install URLs remain readable but receive no future releases. The original upstream Aura collection remains independent.
+The standalone Recents and Tandem repositories and the personal Aura fork are deprecated with migration notices pointing here. They remain unarchived to allow outstanding pull-request reviews; no PRs were closed. Existing install URLs remain readable but receive no future releases. The original upstream Aura collection remains independent.
 
 Before retirement, every published Tandem and Recents branch tip was checked against this repository. The additional Tandem documentation commit `2306f6e` was merged into `plugins/tandem`. Local side branches that were not ancestors of the initial import are preserved under `archive/tandem/`, including `cleanup-diagnostics` and `refactor/source-organization`. These branches retain their original standalone tree layout and are historical snapshots, not installable collection releases. Their alternate changes have not been merged into the maintained implementation. All seven original local Tandem branch tips have corresponding archive branches.
 
-A follow-up bounded scan of 371 historical blobs, including the additional branches, found no common credential-pattern matches. Only Aura's plugin subtree history was imported; unrelated plugins in the old personal upstream fork remain in that read-only repository. No branches or tags in the old repositories were deleted or rewritten.
+A follow-up bounded scan of 371 historical blobs, including the additional branches, found no common credential-pattern matches. Only Aura's plugin subtree history was imported; unrelated plugins in the old personal upstream fork remain in that original repository. No branches or tags in the old repositories were deleted or rewritten.
+
+BB Core PRs [#7620](https://github.com/get-bb/bb/pull/7620) and [#7621](https://github.com/get-bb/bb/pull/7621) use branches in `jshph/bb`, not the deprecated plugin repositories. That core fork and those PRs are unchanged by this consolidation.
