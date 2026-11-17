@@ -67,3 +67,5 @@ bb plugin rpc inspect live-voice
 ```
 
 See [development](docs/development.md), [maintainer context](docs/maintainers.md), and [release status](docs/release.md). Distributed under the [MIT license](LICENSE), preserving the existing attribution.
+
+Cross-call continuity: with Cached briefing enabled, Tandem retains bounded completed speech privately on the BB server and uses it alongside thread evidence for the next briefing, on both Codex and Claude. This is not restored realtime memory or a complete transcript. See [context and retention](docs/context.md#continuity-between-voice-calls).

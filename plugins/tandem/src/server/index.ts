@@ -8,6 +8,7 @@ import { createClaudeRunner, type ClaudeRunnerOptions } from './claude-runner';
 import { nativeVoice } from './native';
 import { observeNative } from './native-observer';
 import { createSessionRegistry, newSession, type Session } from './sessions';
+import { createVoiceMemory } from './voice-memory';
 import { openDatabase } from './storage';
 import { createTraceStore } from './trace-store';
 import { failureReason, rateLimitedWarning, type Diagnostics } from '../shared/trace';
@@ -19,14 +20,15 @@ export const attentionFreshnessMs = 2000;
 
 export function createPlugin(connect?: (sdp: string, startupBriefing?: string | null, voice?: Voice) => Promise<string>, nativeConnect: typeof nativeVoice = nativeVoice, synthesize: typeof synthesizeBriefing = synthesizeBriefing, options: ClaudeRunnerOptions = {}) {
   return async function plugin(bb: BbPluginApi) {
-    const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, voice: { type: 'select', label: 'Voice', description: 'Voice for new Codex and Claude calls. Default keeps Codex’s voice choice (normally Cove). End and start a new call after changing this setting.', options: ['default', ...voiceNames], default: 'default' }, cachedBriefing: { type: 'boolean', label: 'Cached briefing', description: 'Experimental: supply a current prepared briefing when a new call starts. If unavailable, use retrieval for that call. Changes apply to new calls.', default: false }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
+    const settings = bb.settings.define({ diagnostics: { type: 'select', label: 'Diagnostics', description: 'Basic saves compact metadata. Detailed records private text, deltas and chunk timing for troubleshooting. Applies to new calls.', options: ['basic', 'detailed'], default: 'basic' }, voice: { type: 'select', label: 'Voice', description: 'Voice for new Codex and Claude calls. Default keeps Codex’s voice choice (normally Cove). End and start a new call after changing this setting.', options: ['default', ...voiceNames], default: 'default' }, cachedBriefing: { type: 'boolean', label: 'Cached briefing', description: 'Experimental: retain bounded completed voice text locally and supply a current prepared briefing when a new call starts. If unavailable, use retrieval for that call. Changes apply to new calls.', default: false }, codexCommand: { type: 'string', label: 'Codex executable', description: 'Official Codex CLI on the BB server, signed in with ChatGPT. Used for briefing synthesis and Claude’s voice transport. Native Codex voice uses its provider connection.', default: 'codex' } });
     const openCall = connect ?? (async (sdp: string, startupBriefing?: string | null, voice?: Voice) => createSubscriptionCall(sdp, (await settings.get()).codexCommand, startupBriefing, voice));
     const db = openDatabase(bb);
+    const memory = createVoiceMemory(db);
     const traces = createTraceStore(db);
     const sessions = createSessionRegistry(bb, traces, (threadId, sessionId) => nativeConnect(bb, threadId, { action: 'stop', sessionId }));
     const { trace, changed, end, get } = sessions;
     const claude = createClaudeRunner(bb, sessions, options);
-    const briefings = createBriefingCache(bb, db, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal));
+    const briefings = createBriefingCache(bb, db, async (source, signal) => synthesize(source, (await settings.get()).codexCommand, signal), memory);
     settings.onChange(next => { if (!next.cachedBriefing) briefings.cancel(); });
     function refreshAttention(session: Session): Promise<void> | void {
       if (session.attentionRefresh) return session.attentionRefresh;
@@ -39,12 +41,22 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     }
 
     bb.rpc.register(rpcContract, {
+      voiceHistory: async ({ threadId }) => {
+        await bb.sdk.threads.get({ threadId });
+        const clears = await bb.sdk.threads.events.list({ threadId, types: ['thread/context/cleared'], order: 'desc', limit: '1' });
+        return { calls: memory.read(threadId, clears[0]?.createdAt ?? 0).slice(-3).map(row => ({ startedAt: row.started_at, turns: JSON.parse(row.turns) })) };
+      },
+      remember: async ({ sessionId, turns, version }) => {
+        const session = get(sessionId);
+        const saved = session.backgroundMode === 'cached' && (await settings.get()).cachedBriefing && !session.abort.signal.aborted ? memory.save(session, turns, version) : false;
+        return { saved };
+      },
       trace: ({ sessionId, entries }) => ({ saved: traces.write(sessionId, 'browser', entries) }),
       traceSessions: ({ threadId }) => traces.list(threadId) as { sessionId: string; threadId: string; adapter: string; startedAt: number; diagnostics: Diagnostics; bytes: number; dropped: number }[],
       traceRead: ({ sessionId, afterId }) => traces.read(sessionId, afterId),
       briefingStatus: ({ threadId }) => briefings.inspect(threadId),
       prepareBriefing: ({ threadId }) => briefings.request(threadId),
-      forgetBriefing: ({ threadId }) => { briefings.forget(threadId); return { forgotten: true }; },
+      forgetBriefing: ({ threadId }) => { for (const session of sessions.forThread(threadId)) session.backgroundMode = 'off'; briefings.forget(threadId); return { forgotten: true }; },
       available: async ({ threadId }) => { const thread = await bb.sdk.threads.get({ threadId }); return { available: supportsVoice(thread.providerId) }; },
       start: async ({ sessionId, threadId, sdp }) => {
         const reservation = sessions.reserve(sessionId, threadId);
@@ -83,10 +95,18 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
           } else { ended(); answer = await openCall(sdp, startupBriefing ?? null, voice); }
           if (session.abort.signal.aborted) throw new Error('Voice call ended while connecting.');
           trace(session, 'session.connect', { state: 'negotiated' });
-          return { sdp: answer, adapter, diagnostics: session.diagnostics, ...(session.backgroundMode === 'cached' ? { briefing: startupBriefing ? 'ready' as const : 'lookup' as const } : {}) };
+          return { sdp: answer, adapter, ...(session.backgroundMode === 'cached' ? { continuity: true } : {}), diagnostics: session.diagnostics, ...(session.backgroundMode === 'cached' ? { briefing: startupBriefing ? 'ready' as const : 'lookup' as const } : {}) };
         } catch (error) { trace(session, 'session.failed', { reason: failureReason(error) }); await end(sessionId, session); throw error; }
       },
-      stop: async ({ sessionId }) => ({ stopped: sessions.cancel(sessionId) || await end(sessionId) }),
+      stop: async ({ sessionId, turns, version }) => {
+        const session = [...sessions.all()].find(call => call.id === sessionId);
+        try {
+          if (session && turns && version && session.backgroundMode === 'cached' && (await settings.get()).cachedBriefing && !session.abort.signal.aborted) memory.save(session, turns, version);
+        } catch { bb.log.warn('Voice continuity could not be saved'); }
+        const stopped = sessions.cancel(sessionId) || await end(sessionId);
+        if (session && session.backgroundMode === 'cached' && (await settings.get()).cachedBriefing) void briefings.request(session.threadId).catch(() => bb.log.warn('Voice continuity preparation failed'));
+        return { stopped };
+      },
       control: async ({ sessionId }) => {
         const session = get(sessionId);
         if (session.adapter === 'delegated' && !session.job) return { requested: false };
@@ -119,7 +139,7 @@ export function createPlugin(connect?: (sdp: string, startupBriefing?: string | 
     bb.events.on('thread.active', event => briefings.invalidate(event.thread.id)); bb.events.on('thread.failed', wake);
     bb.events.on('interaction.pending', event => { for (const session of sessions.forThread(event.thread.id)) { session.attention = true; changed(session); } });
     const warnCleanup = rateLimitedWarning(() => bb.log.warn('Voice trace retention cleanup failed'));
-    const timer = setInterval(() => { try { traces.prune(); briefings.prune(); } catch { warnCleanup(); } for (const session of sessions.all()) if (Date.now() - session.touched > 60000) void end(session.id); }, 10000);
+    const timer = setInterval(() => { try { traces.prune(); briefings.prune(); memory.prune(); } catch { warnCleanup(); } for (const session of sessions.all()) if (Date.now() - session.touched > 60000) void end(session.id); }, 10000);
     timer.unref?.();
     bb.onDispose(async () => { clearInterval(timer); sessions.close(); await briefings.dispose(); await Promise.all(sessions.ids().map(id => end(id))); });
     const terminal = async ({ thread }: { thread: { id: string } }) => { briefings.forget(thread.id); await Promise.all(sessions.forThread(thread.id).map(session => end(session.id))); };

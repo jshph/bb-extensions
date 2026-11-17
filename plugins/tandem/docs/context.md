@@ -17,9 +17,19 @@ Delegated instructions and quoted context are agent-only; chat shows new spoken 
 Streaming makes available text reach voice sooner; it cannot make the backing model’s research itself faster. Progress and partial findings must retain their qualifications. Existing historical messages are not rewritten.
 
 
+## Continuity between voice calls
+
+With Cached briefing on, both Codex and Claude save completed spoken text in private local plugin storage. A new call still creates a fresh realtime conversation. Prior speech is evidence for the next prepared briefing, not a replay or permission to resume earlier work. Voice-assistant statements are labeled conversational reference, not proof that a tool ran or a task finished. Native provider handoff requests are also included when BB exposes them; typed echoes and nested agent input are excluded.
+
+The browser sends bounded snapshots after completed turns and again on hang-up. Each call retains at most 100 turns / 16,000 text characters; only completed, nonempty turns are saved. Newer snapshots cannot be replaced by late older requests. Briefing evidence uses at most 16,000 characters of retained speech within its existing 60,000-character source budget. The store retains at most 20 calls for seven days and never records audio. Saving is best effort: missing transcript events, abrupt page termination, or network failures can leave gaps. This functional context is separate from diagnostics, so Basic diagnostics still omit conversation text. Cached briefing off stops new collection; previously saved text expires normally or can be deleted with `forgetBriefing`.
+
+Voice-only discussion changes the cache revision. Hang-up queues briefing preparation when possible, without submitting a coding task. Startup never waits for generation: if the next call arrives before a fresh briefing is ready, it remains retrieval-only. A backing agent can retrieve the latest three retained calls with `voiceHistory` and a thread ID, even when synthesis is unavailable. The response is quoted conversation, not verified execution evidence or new authorization. Context cleared after a call began excludes that call from future reads and synthesis. `forgetBriefing` deletes the saved speech as well as the compiled reference and stops collection for that thread's current calls.
+
+Compiler evidence pointers above zero identify BB events. Negative pointers identify local voice records, not BB transcript event sequences. These records do not make voice-only conversation appear as normal BB chat messages, and are not exhaustive thread memory.
+
 ## Briefing controls
 
-All three RPCs take `{ "threadId": "thr_..." }` through `--input-file`:
+The briefing RPCs take `{ "threadId": "thr_..." }` through `--input-file`:
 
 ```sh
 bb plugin rpc call live-voice briefingStatus --input-file /tmp/voice-thread.json --json
@@ -28,3 +38,11 @@ bb plugin rpc call live-voice forgetBriefing --input-file /tmp/voice-thread.json
 ```
 
 `briefingStatus` returns `missing`, `busy`, `preparing`, `ready`, `stale`, or `error`; only ready responses include the JSON text. `prepareBriefing` watches the thread and queues preparation when idle without waiting for synthesis. It can explicitly prepare a cache even while background is off. `forgetBriefing` deletes the cache and watch. Turning Cached briefing off cancels queued/in-progress automatic preparation; existing calls keep their startup policy. `context.startup` records attempted startup cache metadata (and the exact reference only in detailed mode). The `start` RPC returns `briefing: ready | lookup` in cached mode. Turn Cached briefing off to restore the baseline for new calls.
+
+To retrieve retained speech for a focused continuity question:
+
+```sh
+bb plugin rpc call live-voice voiceHistory --input-file /tmp/voice-thread.json --json
+```
+
+Treat the returned words as historical reference. A recording of an assistant saying an action succeeded is not independent confirmation.

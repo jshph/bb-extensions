@@ -4,6 +4,7 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { startupReference } from '../prompts';
 import { briefingEvidence, briefingRevision, validateBriefing } from './briefing';
 import { createBriefingCache } from './briefing-cache';
+import { createVoiceMemory } from '../voice-memory';
 import { openDatabase } from '../storage';
 import { createPlugin } from '../index';
 import type { NativeVoiceCommand } from '../native';
@@ -125,5 +126,70 @@ it('switching off aborts preparation and prevents idle events from starting new 
     expect(signal!.aborted).toBe(true);
     await f.harness.behavior.emitThreadEvent('thread.idle', { thread: makeThreadResponse({ id: 'thread', status: 'idle' }), lastAssistantText: null });
     expect(synthesize).toHaveBeenCalledOnce();
+  } finally { await f.harness.lifecycle.dispose(); }
+});
+
+it('includes native provider requests once, excluding typed echoes and nested input', async () => {
+  const f = fixture('codex');
+  try {
+    f.add('item/completed', { item: { type: 'userMessage', content: [{ type: 'text', text: 'Keep continuity' }] } });
+    f.add('item/completed', { item: { type: 'userMessage', content: [{ type: 'text', text: 'Prefer the blue version' }] } });
+    f.add('item/completed', { item: { clientRequestId: 'typed', type: 'userMessage', content: [{ type: 'text', text: 'typed echo' }] } });
+    f.add('item/completed', { item: { type: 'userMessage', parentToolCallId: 'child', content: [{ type: 'text', text: 'nested' }] } });
+    const source = await briefingEvidence(f.bb, 'thread', new AbortController().signal);
+    expect(source.items.filter(item => item.kind === 'user').map(item => item.text).sort()).toEqual(['Keep continuity', 'Prefer the blue version']);
+  } finally { await f.harness.lifecycle.dispose(); }
+});
+
+for (const providerId of ['codex', 'claude']) it(`${providerId} preserves voice-only decisions for the next call without submitting work`, async () => {
+  const f = fixture(providerId, true);
+  const synthesize = vi.fn(async () => summary);
+  const connect = vi.fn(async () => 'answer');
+  const commands: NativeVoiceCommand[] = [];
+  await createPlugin(connect, async (_bb, _thread, command) => { commands.push(command); return { sdp: command.action === 'start' ? 'answer' : null }; }, synthesize)(f.bb);
+  const sessionId = 'a77bc81a-9777-466c-b231-e04784794cf6';
+  const turns = [{ seq: 1, role: 'user', text: 'We decided to keep the blue version', complete: true }];
+  try {
+    await f.harness.behavior.callRpc('start', { threadId: 'thread', sessionId, sdp: 'offer' });
+    await f.harness.behavior.callRpc('remember', { sessionId, turns, version: 1 });
+    expect(await f.harness.behavior.callRpc('voiceHistory', { threadId: 'thread' })).toMatchObject({ calls: [{ turns }] });
+    await f.harness.behavior.callRpc('stop', { sessionId, turns, version: 2 });
+    await vi.waitFor(async () => expect(await f.harness.behavior.callRpc('briefingStatus', { threadId: 'thread' })).toMatchObject({ state: 'ready' }));
+    expect(synthesize.mock.calls.some(call => JSON.stringify(call).includes('blue version'))).toBe(true);
+    expect(await f.harness.behavior.callRpc('start', { threadId: 'thread', sessionId: 'c77bc81a-9777-466c-b231-e04784794cf6', sdp: 'offer' })).toMatchObject({ briefing: 'ready' });
+    expect(f.harness.inspection.sdk.callsTo('threads.send')).toHaveLength(0);
+    await f.harness.behavior.callRpc('forgetBriefing', { threadId: 'thread' });
+    expect(await f.harness.behavior.callRpc('voiceHistory', { threadId: 'thread' })).toEqual({ calls: [] });
+    expect(await f.harness.behavior.callRpc('remember', { sessionId: 'c77bc81a-9777-466c-b231-e04784794cf6', turns, version: 3 })).toEqual({ saved: false });
+  } finally { await f.harness.lifecycle.dispose(); }
+});
+
+it('does not retain voice text when Cached briefing is off, even from an older caller', async () => {
+  const f = fixture('claude', false);
+  await createPlugin(async () => 'answer')(f.bb);
+  const sessionId = 'a77bc81a-9777-466c-b231-e04784794cf6';
+  const turns = [{ seq: 1, role: 'user', text: 'Private decision', complete: true }];
+  try {
+    await f.harness.behavior.callRpc('start', { threadId: 'thread', sessionId, sdp: 'offer' });
+    expect(await f.harness.behavior.callRpc('remember', { sessionId, turns, version: 1 })).toEqual({ saved: false });
+    await f.harness.behavior.callRpc('stop', { sessionId, turns, version: 2 });
+    expect(await f.harness.behavior.callRpc('voiceHistory', { threadId: 'thread' })).toEqual({ calls: [] });
+  } finally { await f.harness.lifecycle.dispose(); }
+});
+
+it('voice changes invalidate a ready cache and context clearing excludes previous calls', async () => {
+  const f = fixture();
+  const memory = createVoiceMemory(openDatabase(f.bb));
+  try {
+    const before = (await briefingRevision(f.bb, 'thread', undefined, memory)).revision;
+    const startedAt = Date.now();
+    memory.save({ id: 'call', threadId: 'thread', startedAt }, [{ seq: 1, role: 'user', text: 'A voice-only decision', complete: true }], 1);
+    expect((await briefingRevision(f.bb, 'thread', undefined, memory)).revision).not.toBe(before);
+    let evidence = await briefingEvidence(f.bb, 'thread', new AbortController().signal, memory);
+    expect(evidence.items.some(item => item.text === 'A voice-only decision' && item.seq < 0)).toBe(true);
+    f.add('thread/context/cleared', {}, { kind: 'thread' });
+    f.rows[f.rows.length - 1]!.createdAt = startedAt + 1;
+    evidence = await briefingEvidence(f.bb, 'thread', new AbortController().signal, memory);
+    expect(evidence.items).toEqual([]);
   } finally { await f.harness.lifecycle.dispose(); }
 });

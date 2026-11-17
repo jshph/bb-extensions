@@ -3,10 +3,11 @@ import type { Database } from '../storage';
 import { z } from 'zod';
 import type { BriefingStatus as Status } from '../../shared/contract';
 import { startupReference } from '../prompts';
+import type { VoiceMemory } from '../voice-memory';
 import { briefingEvidence, briefingRevision, type Evidence } from './briefing';
 
 const rowSchema = z.object({ revision: z.string().nullable(), generated_at: z.number().nullable(), text: z.string().nullable(), status: z.string(), error: z.string().nullable() });
-export function createBriefingCache(bb: BbPluginApi, db: Database, generate: (source: Evidence, signal: AbortSignal) => Promise<string>) {
+export function createBriefingCache(bb: BbPluginApi, db: Database, generate: (source: Evidence, signal: AbortSignal) => Promise<string>, memory?: VoiceMemory) {
   const queue = new Set<string>();
   let worker: Promise<void> | null = null, current: { threadId: string; abort: AbortController } | null = null, disposed = false;
   function watched(threadId: string): boolean { return !!db.prepare('SELECT thread_id FROM voice_briefings WHERE thread_id = ?').get(threadId); }
@@ -15,7 +16,7 @@ export function createBriefingCache(bb: BbPluginApi, db: Database, generate: (so
   }
   function watch(threadId: string) { db.prepare('INSERT INTO voice_briefings (thread_id, touched) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET touched = excluded.touched').run(threadId, Date.now()); prune(); }
   async function inspect(threadId: string): Promise<Status> {
-    const head = await briefingRevision(bb, threadId);
+    const head = await briefingRevision(bb, threadId, undefined, memory);
     const raw = db.prepare('SELECT * FROM voice_briefings WHERE thread_id = ?').get(threadId);
     const row = raw ? rowSchema.parse(raw) : null;
     const state = head.thread.status !== 'idle' ? 'busy' : row?.status === 'preparing' ? 'preparing' : row?.text && row.revision === head.revision && row.generated_at && Date.now() - row.generated_at < 86400000 ? 'ready' : row?.text ? 'stale' : row?.status === 'error' ? 'error' : 'missing';
@@ -27,18 +28,18 @@ export function createBriefingCache(bb: BbPluginApi, db: Database, generate: (so
       current = { threadId, abort: new AbortController() };
       const signal = current.abort.signal;
       try {
-        const head = await briefingRevision(bb, threadId, signal);
+        const head = await briefingRevision(bb, threadId, signal, memory);
         if (signal.aborted) continue;
         if (head.thread.status !== 'idle' || head.thread.archivedAt !== null || !watched(threadId)) continue;
         const row = rowSchema.parse(db.prepare('SELECT * FROM voice_briefings WHERE thread_id = ?').get(threadId));
         if (row.text && row.revision === head.revision && row.generated_at && Date.now() - row.generated_at < 86400000) continue;
         db.prepare("UPDATE voice_briefings SET status = 'preparing', error = NULL WHERE thread_id = ?").run(threadId);
-        const source = await briefingEvidence(bb, threadId, signal);
+        const source = await briefingEvidence(bb, threadId, signal, memory);
         if (signal.aborted) continue;
         if (source.items.length === 0) { db.prepare("UPDATE voice_briefings SET status = 'missing' WHERE thread_id = ?").run(threadId); continue; }
         const text = await generate(source, signal);
         if (disposed || signal.aborted) continue;
-        const latest = await briefingRevision(bb, threadId, signal);
+        const latest = await briefingRevision(bb, threadId, signal, memory);
         if (latest.thread.status !== 'idle' || latest.revision !== source.revision) {
           db.prepare("UPDATE voice_briefings SET status = 'stale' WHERE thread_id = ?").run(threadId);
           if (latest.thread.status === 'idle') queue.add(threadId);
@@ -66,7 +67,7 @@ export function createBriefingCache(bb: BbPluginApi, db: Database, generate: (so
       return { state: status.state, generatedAt: status.generatedAt, text: startupReference(status.text!) };
     },
     invalidate(threadId: string) { if (!disposed && watched(threadId)) { db.prepare("UPDATE voice_briefings SET status = 'stale', text = NULL WHERE thread_id = ?").run(threadId); if (current?.threadId === threadId) current.abort.abort(); } },
-    forget(threadId: string) { queue.delete(threadId); if (current?.threadId === threadId) current.abort.abort(); db.prepare('DELETE FROM voice_briefings WHERE thread_id = ?').run(threadId); },
+    forget(threadId: string) { memory?.forget(threadId); queue.delete(threadId); if (current?.threadId === threadId) current.abort.abort(); db.prepare('DELETE FROM voice_briefings WHERE thread_id = ?').run(threadId); },
     cancel() { queue.clear(); current?.abort.abort(); },
     async dispose() { disposed = true; queue.clear(); current?.abort.abort(); await worker; },
   };
