@@ -20,8 +20,7 @@ Install from the local plugin checkout:
 bb plugin install .
 ```
 
-The intended GitHub destination is `jshph/bb-plugin-recents`; creating and
-pushing that remote is awaiting approval. After publication, install with
+Install from the public repository with
 `bb plugin install https://github.com/jshph/bb-plugin-recents`.
 
 The plugin renders below the composer on desktop and in the scroll area above

@@ -49,6 +49,4 @@ screenshots use the fallback font. The source verification inventory check was
 blocked by its pre-existing unmapped `diagnostics` CLI family. No unrelated
 inventory baseline was changed.
 
-GitHub creation/push requires approval of the intended destination and
-visibility. The plugin is committed locally; this file does not claim it has
-been published.
+The public source repository is `jshph/bb-plugin-recents`.
