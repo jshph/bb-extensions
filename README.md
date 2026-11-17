@@ -14,9 +14,15 @@ Requires a BB build with Plugin SDK **0.6.147** or later. The initial release
 accompanies the homepage-section API changes in the `jshph/bb` fork; an older
 BB build cannot install it. Those core changes must be applied first.
 
+Install from the local plugin checkout:
+
 ```sh
-bb plugin install https://github.com/jshph/bb-plugin-recents
+bb plugin install .
 ```
+
+The intended GitHub destination is `jshph/bb-plugin-recents`; creating and
+pushing that remote is awaiting approval. After publication, install with
+`bb plugin install https://github.com/jshph/bb-plugin-recents`.
 
 The plugin renders below the composer on desktop and in the scroll area above
 the composer on compact screens. Disabling it removes Recents entirely.
