@@ -4,7 +4,7 @@ Joshua Pham’s BB plugin collection. Each plugin has its own manifest, dependen
 
 | Plugin | Directory | Release | Purpose |
 | --- | --- | --- | --- |
-| Tandem | [plugins/tandem](plugins/tandem) | `tandem/v0.3.4` | Subscription voice for Codex and Claude threads |
+| Tandem | [plugins/tandem](plugins/tandem) | `tandem/v0.3.5` | Subscription voice for Codex and Claude threads |
 | Recents | [plugins/recents](plugins/recents) | `recents/v0.1.2` | Recent and nested threads on the new-thread page |
 | Aura | [plugins/aura](plugins/aura) | `aura/v0.2.2` | Custom backgrounds, dithering, fades, and readable chips |
 
