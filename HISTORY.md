@@ -29,3 +29,7 @@ Before retirement, every published Tandem and Recents branch tip was checked aga
 A follow-up bounded scan of 371 historical blobs, including the additional branches, found no common credential-pattern matches. Only Aura's plugin subtree history was imported; unrelated plugins in the old personal upstream fork remain in that original repository. No branches or tags in the old repositories were deleted or rewritten.
 
 BB Core PRs [#7620](https://github.com/get-bb/bb/pull/7620) and [#7621](https://github.com/get-bb/bb/pull/7621) use branches in `jshph/bb`, not the deprecated plugin repositories. That core fork and those PRs are unchanged by this consolidation.
+
+## Preserved waveform stash
+
+The original Tandem stash `4ab2d685493f63b19610a9457f56a0660c3510f1` is retained exactly as `archive/tandem/stash-waveform-position`, including its index parent. Its added and removed lines match imported waveform-position commit `7572a1d9a4cd67b35a1e2617608dcd59f2e14611` exactly after the source-file relocation. The maintained implementation already contains this change. The stash branch is a historical standalone snapshot, not a collection release. Original checkouts, worktrees, and the stash were retained; preserving source history does not imply it is safe to delete a workspace still referenced by BB threads.
