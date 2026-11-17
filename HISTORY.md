@@ -19,3 +19,11 @@ Aura’s two README screenshots were copied from the original collection’s `do
 A bounded review of 342 imported historical source blobs found no common credential patterns or sensitive account/database filenames. This is not a comprehensive audit.
 
 No application databases, user backgrounds, transcripts, or local account files are included. Earlier public Tandem history includes development paths and opaque thread references; see its release notes for context. Runtime installations continue to use their previous sources until a separate migration.
+
+## Superseded repositories
+
+The standalone Recents and Tandem repositories and the personal Aura fork are retained as archived repositories with migration notices pointing here. Existing install URLs remain readable but receive no future releases. The original upstream Aura collection remains independent.
+
+Before retirement, every published Tandem and Recents branch tip was checked against this repository. The additional Tandem documentation commit `2306f6e` was merged into `plugins/tandem`. Local side branches that were not ancestors of the initial import are preserved under `archive/tandem/`, including `cleanup-diagnostics` and `refactor/source-organization`. These branches retain their original standalone tree layout and are historical snapshots, not installable collection releases. Their alternate changes have not been merged into the maintained implementation. All seven original local Tandem branch tips have corresponding archive branches.
+
+A follow-up bounded scan of 371 historical blobs, including the additional branches, found no common credential-pattern matches. Only Aura's plugin subtree history was imported; unrelated plugins in the old personal upstream fork remain in that read-only repository. No branches or tags in the old repositories were deleted or rewritten.
