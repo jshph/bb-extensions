@@ -11,7 +11,7 @@ Tandem is an experimental developer preview. Native Codex voice currently needs 
 - Press the waveform beside dictation to start a conversation. While connected, it pulses gently and glows when assistant playback is detected.
 - Mute controls your microphone. The red hang-up button ends voice; submitted coding work can continue. Use BB’s thread controls to cancel agent work.
 - Navigate freely within BB. The call stays attached to its original thread, with a floating dial that lets you return, mute or hang up. Starting voice elsewhere offers an explicit switch.
-- Start from New thread to create a thread using your selected project, environment and agent settings, then connect voice. This sends no placeholder coding request and leaves your draft alone. It requires BB’s initialized-thread support.
+- Start from New thread to create a thread using your selected project, environment and agent settings, then connect voice. This explicitly initializes the provider, sends no placeholder coding request, and leaves your draft alone. The new thread starts without a fixed title so BB can name it from real task content. It requires BB’s initialized-thread support.
 
 Tool approvals remain in BB. Closing or reloading the page ends voice. A later call is a fresh conversation; it does not resume the previous audio conversation. Other tasks already running in a Claude thread are not silently taken over by voice.
 

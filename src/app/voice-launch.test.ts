@@ -16,7 +16,8 @@ describe('new voice thread preparation', () => {
     const threads = { spawn: vi.fn(async () => thread), get: vi.fn() };
     const created = vi.fn();
     expect(await createVoiceThread(threads, selection, new AbortController().signal, created)).toEqual(thread);
-    expect(threads.spawn).toHaveBeenCalledExactlyOnceWith({ ...selection, input: [], title: 'Voice conversation' });
+    expect(threads.spawn).toHaveBeenCalledExactlyOnceWith({ ...selection, input: [], start: 'initialize' });
+    expect(voiceThreadRequest(selection)).not.toHaveProperty('title');
     expect(created).toHaveBeenCalledExactlyOnceWith(thread);
     expect(threads.get).not.toHaveBeenCalled();
   });

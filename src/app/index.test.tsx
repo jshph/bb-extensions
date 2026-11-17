@@ -59,7 +59,7 @@ describe('voice launch surfaces', () => {
     fireEvent.click(within(launcher.container).getByRole('status', { name: 'Connecting voice…' }));
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(starts).not.toHaveBeenCalled();
-    expect(spawn.mock.calls[0]).toEqual([{ ...selection, input: [], title: 'Voice conversation' }]);
+    expect(spawn.mock.calls[0]).toEqual([{ ...selection, input: [], start: 'initialize' }]);
     await act(async () => created(threadA));
     await callBar.findByRole('status', { name: 'Voice connected' });
     expect(launcher.inspection.composer.text).toBe('Do not submit this draft');

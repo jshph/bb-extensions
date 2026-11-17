@@ -9,7 +9,7 @@ export function voiceThreadRequest(selection: ComposerSelection | null) {
     throw new Error('Choose a project, environment, provider and model before starting voice.');
   }
   if (!supportsVoice(selection.providerId)) throw new Error('Tandem supports Codex and Claude threads.');
-  return { ...selection, projectId: selection.projectId, environment: selection.environment, providerId: selection.providerId, input: [], title: 'Voice conversation' };
+  return { ...selection, projectId: selection.projectId, environment: selection.environment, providerId: selection.providerId, input: [], start: 'initialize' as const };
 }
 
 function wait(signal: AbortSignal): Promise<void> {
