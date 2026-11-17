@@ -1,0 +1,65 @@
+.live-voice-trigger {
+  transition: color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.live-voice-controls {
+  overflow: visible;
+}
+
+.live-voice-end {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.live-voice-trigger[data-voice-state="speaking"] {
+  box-shadow: 0 0 16px color-mix(in oklab, currentColor 35%, transparent);
+  background-color: color-mix(in oklab, currentColor 12%, transparent);
+}
+
+.live-voice-waveform[data-voice-state="speaking"] {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+.live-voice-waveform[data-voice-state="listening"],
+.live-voice-waveform[data-voice-state="connecting"] {
+  animation: live-voice-breathe 1.6s ease-in-out infinite;
+}
+
+.live-voice-waveform[data-voice-state="speaking"] path {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: live-voice-speech 0.65s ease-in-out infinite alternate;
+}
+
+.live-voice-waveform[data-voice-state="speaking"] path:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.live-voice-waveform[data-voice-state="speaking"] path:nth-child(3) {
+  animation-delay: -0.15s;
+}
+
+.live-voice-waveform[data-voice-state="speaking"] path:nth-child(4) {
+  animation-delay: -0.45s;
+}
+
+@keyframes live-voice-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@keyframes live-voice-speech {
+  from { transform: scaleY(0.35); }
+  to { transform: scaleY(1.25); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-voice-waveform,
+  .live-voice-waveform path,
+  .live-voice-controls {
+    animation: none !important;
+  }
+
+  .live-voice-trigger { transition: none; }
+}
