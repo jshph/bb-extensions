@@ -16,8 +16,7 @@ ${NEW_THREAD_TARGET} [class~="@container/page"]:has(> .mx-auto) {
 ${NEW_THREAD_TARGET} [class~="@container/page"] > .mx-auto {
   margin-block:auto; padding-block:28px;
 }
-@media (min-width:768px) {
-  ${NEW_THREAD_TARGET} [data-app-composer-role="primary"] > :last-child {
+${NEW_THREAD_TARGET} [data-app-composer-role="primary"] > :last-child {
     position:relative; z-index:0; margin-top:8px; padding:5px 9px;
     border-radius:11px;
     -webkit-backdrop-filter:blur(14px) saturate(.86);
@@ -90,7 +89,6 @@ ${NEW_THREAD_TARGET} [class~="@container/page"] > .mx-auto {
     border-color:color-mix(in oklab,var(--border) 70%,transparent);
     background:color-mix(in oklab,var(--background) 54%,transparent);
   }
-}
 `;
 export const READING_SURFACE = `
 [id="thread-detail-timeline-panel"] .thread-scrollbar:has(> div > .mx-auto) {
