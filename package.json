@@ -1,0 +1,15 @@
+{
+  "name": "jshph-bb-extensions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install": "node scripts/plugins.mjs install",
+    "check": "node scripts/plugins.mjs check",
+    "test": "node scripts/plugins.mjs test",
+    "build": "node scripts/plugins.mjs build",
+    "verify": "node scripts/plugins.mjs verify"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

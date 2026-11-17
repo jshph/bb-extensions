@@ -1,0 +1,19 @@
+{
+  "$schema": "https://getbb.app/schemas/plugins.schema.json",
+  "schemaVersion": 1,
+  "name": "jshph-bb-extensions",
+  "plugins": [
+    {
+      "name": "tandem",
+      "source": "./plugins/tandem"
+    },
+    {
+      "name": "recents",
+      "source": "./plugins/recents"
+    },
+    {
+      "name": "aura",
+      "source": "./plugins/aura"
+    }
+  ]
+}

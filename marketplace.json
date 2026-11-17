@@ -1,0 +1,81 @@
+{
+  "$schema": "https://getbb.app/schemas/marketplace-v2.schema.json",
+  "schemaVersion": 2,
+  "name": "jshph-bb-extensions",
+  "displayName": "Joshua\u2019s BB Extensions",
+  "description": "Tandem, Recents, and a customized Aura, released independently.",
+  "plugins": [
+    {
+      "id": "live-voice",
+      "displayName": "Tandem",
+      "description": "Talk with your BB coding agents using Codex subscription voice for Codex and Claude threads.",
+      "icon": {
+        "url": "./icons/tandem.svg"
+      },
+      "overview": "Talk with Codex or Claude in your BB thread using Codex subscription voice. Tandem keeps the conversation connected as you navigate.\n\n## What you get\n\nStart from the waveform beside dictation, including on New thread. Mute and circular hang-up controls stay visible during a call; a floating dial follows you off-thread. The waveform pulses when connected and glows during assistant playback. End voice while coding work continues, and use BB\u2019s thread controls to cancel agent work. Tool approvals remain in BB.\n\nOptionally enable Cached briefing to supply a bounded prepared reference when a call starts. Missing or stale briefings leave the call retrieval-only. Briefings use your Codex subscription and remain local to your BB installation.\n\n## Requirements\n\nTandem is an experimental developer preview. It uses Codex signed in with ChatGPT on the BB server, with no API-key fallback. Claude retains its existing provider authentication. Native Codex voice requires the customized BB native transport bridge; new-thread startup requires input-free initialization support. General stock-BB compatibility is not established. Codex protocol changes may require updates. Physical-device audio routing and background behavior need further testing.\n\nThe display name is Tandem; the stable plugin ID remains live-voice to preserve settings and saved data.\n",
+      "tags": [
+        "voice"
+      ],
+      "author": {
+        "name": "Joshua Pham",
+        "github": "jshph"
+      },
+      "source": {
+        "git": {
+          "url": "https://github.com/jshph/bb-extensions.git",
+          "subdir": "plugins/tandem",
+          "range": "^0.3.4",
+          "tagPrefix": "tandem/"
+        }
+      }
+    },
+    {
+      "id": "recents",
+      "displayName": "Recents",
+      "description": "Recent threads on the new-thread page, with nested threads and live activity.",
+      "icon": {
+        "url": "./icons/recents.svg"
+      },
+      "overview": "## Keep recent work within reach\n\nOpen the new-thread page to find your latest conversations alongside the\ncomposer. On desktop the list sits below it; on compact screens it scrolls\nabove it.\n\nRecents keeps child threads nested under their parents, lets you collapse\nbranches, and shows live status, unsent drafts, provider icons and workspace\nmetadata. Thread rows keep BB's own actions menu. The list shows up to fifteen\nvisible rows.\n\nCreating a thread shows progress and highlights the result when you stay on\nthe new-thread page. Navigating to a nested thread or receiving unread activity\nreveals its ancestors. Existing browser collapse preferences carry over from\nthe original core implementation.\n\n## Requirements\n\nRequires BB with Plugin SDK 0.6.147 or later, including the companion homepage\nsection changes. No external service or additional account is required. The\nplugin works independently of Tandem.\n\nUse `bb recents list --json` for a bounded snapshot through the CLI. Browser\ncollapse choices and local drafts remain specific to that client.\n",
+      "tags": [
+        "interface"
+      ],
+      "author": {
+        "name": "Joshua Pham",
+        "github": "jshph"
+      },
+      "source": {
+        "git": {
+          "url": "https://github.com/jshph/bb-extensions.git",
+          "subdir": "plugins/recents",
+          "range": "^0.1.2",
+          "tagPrefix": "recents/"
+        }
+      }
+    },
+    {
+      "id": "aura",
+      "displayName": "Aura",
+      "description": "Personal backgrounds, Capy dithering, and six saved slots for your conversations.",
+      "icon": {
+        "url": "./plugins/aura/assets/icon.svg"
+      },
+      "overview": "## Personal backgrounds\n\nUse a custom image or Capy pixel pattern behind conversations and the new-thread page. Six saved slots let you switch between backgrounds. Apply a background to all threads or keep it on the new-thread page.\n\n## This fork\n\nBased on Mateo Cerquetella\u2019s Aura, this edition adds warped blue-noise dithering, an animated half-wallpaper fade, image caching improvements, and readable composer and recent-thread surfaces on desktop and compact screens. Original licensing and third-party notices are included.\n\n## Requirements\n\nRequires BB with content-script support. No external account or paid service is required. Background images and settings remain on your BB installation.\n\n[Source and installation](https://github.com/jshph/bb-extensions/tree/main/plugins/aura)\n",
+      "tags": [
+        "interface"
+      ],
+      "author": {
+        "name": "Mateo Cerquetella; maintained by Joshua Pham",
+        "github": "jshph"
+      },
+      "source": {
+        "git": {
+          "url": "https://github.com/jshph/bb-extensions.git",
+          "subdir": "plugins/aura",
+          "range": "^0.2.2",
+          "tagPrefix": "aura/"
+        }
+      }
+    }
+  ]
+}

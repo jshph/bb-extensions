@@ -2,11 +2,7 @@
 
 Recent threads on the new-thread page, with nested threads and live activity.
 
-Recents is independent of Tandem. It follows the same one-plugin-per-repository
-convention as `jshph/bb-plugin-live-voice`, with its own install, version and
-release tags. BB also supports collections through `.bb/plugins.json`; a
-collection is useful when several plugins intentionally share a repository.
-Voice and homepage navigation have separate purposes, so these stay separate.
+Recents is independently versioned inside the [BB Extensions collection](https://github.com/jshph/bb-extensions), alongside Tandem and Aura. Installing Recents does not install the other plugins.
 
 ## Install
 
@@ -21,7 +17,7 @@ bb plugin install .
 ```
 
 Install from the public repository with
-`bb plugin install https://github.com/jshph/bb-plugin-recents`.
+`bb plugin install git:https://github.com/jshph/bb-extensions.git@^0.1.2 --plugin recents --tag-prefix recents/`.
 
 The plugin renders below the composer on desktop and in the scroll area above
 the composer on compact screens. Disabling it removes Recents entirely.

@@ -35,19 +35,18 @@ BB-authenticated image route. Images are not sent to Capy or included in prompts
 
 ## Install
 
-Requires BB 0.40+ and SDK 0.4.21+. From the workspace root:
+This maintained fork includes additional dithering and readability changes. Original Aura is by Mateo Cerquetella. Requires BB 0.40+ and SDK 0.4.21+. From the collection root:
 
 ```sh
-npm install
-npm run check --workspace bb-plugin-aura
-bb plugin install ./plugins/aura --yes
-bb plugin reload aura
+npm run install -- aura
+npm run verify -- aura
+bb plugin install ./plugins/aura
 ```
 
 Install the Git release after publication:
 
 ```sh
-bb plugin install git:https://github.com/MateoCerquetella/bb-plugins.git@^0.2.1 \
+bb plugin install git:https://github.com/jshph/bb-extensions.git@^0.2.2 \
   --subdirectory plugins/aura --tag-prefix aura/
 ```
 
@@ -95,7 +94,7 @@ run at up to 30 fps and pauses off-screen, when hidden, and for reduced motion.
 The image/gradient remains if WebGL is unavailable.
 
 ```sh
-npm run check --workspace bb-plugin-aura
+npm run verify -- aura
 ```
 
 Unit tests cover atomic apply/rejection, six-slot persistence and replacement,

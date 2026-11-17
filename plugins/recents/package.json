@@ -1,16 +1,17 @@
 {
   "name": "bb-plugin-recents",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Recent threads on the new-thread page, with nested threads and live activity.",
   "private": true,
   "license": "MIT",
-  "homepage": "https://github.com/jshph/bb-plugin-recents",
+  "homepage": "https://github.com/jshph/bb-extensions/tree/main/plugins/recents",
   "bugs": {
-    "url": "https://github.com/jshph/bb-plugin-recents/issues"
+    "url": "https://github.com/jshph/bb-extensions/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jshph/bb-plugin-recents.git"
+    "url": "https://github.com/jshph/bb-extensions.git",
+    "directory": "plugins/recents"
   },
   "type": "module",
   "files": [

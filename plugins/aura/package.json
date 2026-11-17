@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-aura",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Custom image backgrounds and softly faded pixel patterns for BB threads.",
   "license": "MIT",
   "type": "module",
@@ -42,21 +42,27 @@
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.4.21",
+    "@playwright/test": "^1.51.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0",
-    "@playwright/test": "^1.51.0",
-    "jsdom": "^26.1.0",
-    "@types/jsdom": "^21.1.7",
     "better-sqlite3": "^12.0.0",
-    "@types/better-sqlite3": "^7.6.12"
+    "cron-parser": "^5.10.6",
+    "hono": "^4.13.19",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.7.0"
   },
   "author": "Mateo Cerquetella",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MateoCerquetella/bb-plugins.git",
+    "url": "https://github.com/jshph/bb-extensions.git",
     "directory": "plugins/aura"
   },
-  "homepage": "https://github.com/MateoCerquetella/bb-plugins/tree/main/plugins/aura"
+  "homepage": "https://github.com/jshph/bb-extensions/tree/main/plugins/aura",
+  "bugs": {
+    "url": "https://github.com/jshph/bb-extensions/issues"
+  },
+  "private": true
 }

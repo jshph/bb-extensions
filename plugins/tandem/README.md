@@ -48,8 +48,8 @@ Cached briefing defaults to off. Settings apply to new calls. See [thread backgr
 Tandem is an experimental source preview. The native Codex path still requires the BB support described above; public source availability does not establish stock BB compatibility. To build from source:
 
 ```sh
-git clone https://github.com/jshph/bb-plugin-live-voice.git
-cd bb-plugin-live-voice
+git clone https://github.com/jshph/bb-extensions.git
+cd bb-extensions/plugins/tandem
 npm ci --include=dev
 npm run check
 npm test

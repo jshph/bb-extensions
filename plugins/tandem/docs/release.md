@@ -1,6 +1,6 @@
 # Tandem release status
 
-Tandem 0.3.3 is an experimental source preview distributed under the MIT license, preserving BB’s existing copyright and attribution. Source availability does not establish compatibility with stock BB.
+Tandem 0.3.4 is an experimental source preview distributed under the MIT license, preserving BB’s existing copyright and attribution. Source availability does not establish compatibility with stock BB.
 
 ## Installation boundary
 
@@ -14,7 +14,7 @@ These protocol numbers identify customized BB changes, not a stock-release compa
 
 ## Naming and upgrades
 
-The plugin and BB project are called Tandem. The package remains `bb-plugin-live-voice` and its plugin ID remains `live-voice` to preserve existing settings, briefing data and diagnostics. The repository URL is unchanged. Keep `private: true` to prevent accidental npm publication; this does not prevent source distribution or BB Git installation.
+The plugin and BB project are called Tandem. The package remains `bb-plugin-live-voice` and its plugin ID remains `live-voice` to preserve existing settings, briefing data and diagnostics. The source now lives in `plugins/tandem` in the BB Extensions collection; earlier history is preserved. Keep `private: true` to prevent accidental npm publication; this does not prevent source distribution or BB Git installation.
 
 The Cached briefing boolean replaces the former background dropdown. When upgrading from cached mode, enable the new toggle with `bb plugin config live-voice set cachedBriefing true`. Off and on apply to fresh calls. The deferred briefing/full comparison modes are retired; historical traces remain under bounded retention.
 
